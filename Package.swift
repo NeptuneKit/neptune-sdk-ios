@@ -12,14 +12,13 @@ let package = Package(
         .library(name: "NeptuneSDKiOS", targets: ["NeptuneSDKiOS"])
     ],
     dependencies: [
-        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.26.0"))
+        .package(url: "https://github.com/vapor/vapor.git", .upToNextMajor(from: "4.121.3"))
     ],
     targets: [
         .target(
             name: "NeptuneSDKiOS",
             dependencies: [
-                .product(name: "FlyingFox", package: "FlyingFox"),
-                .product(name: "FlyingSocks", package: "FlyingFox")
+                .product(name: "Vapor", package: "vapor")
             ],
             path: "Sources/NeptuneSDKiOS"
         ),

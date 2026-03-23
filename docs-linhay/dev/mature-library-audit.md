@@ -1,46 +1,68 @@
-# 成熟库优先审计 - NeptuneSDKiOS
+# 成熟库决策说明 - 本地 HTTP 导出服务
 
 日期：2026-03-24
 
-## 审计范围
+## 背景
 
-检查仓库内是否存在手搓的基础设施实现，重点关注：
+`NeptuneExportHTTPServer` 原先依赖 `FlyingFox` / `FlyingSocks` 暴露本地导出接口：
 
-- HTTP 服务
-- 编码 / 解析
-- 重试 / 队列发送
-- SQLite / 持久化
-- CLI / 协议解析
+- `GET /v2/export/health`
+- `GET /v2/export/metrics`
+- `GET /v2/export/logs?cursor&limit`
+
+本次按“成熟库优先”硬切要求，评估是否迁移到更主流、维护更活跃的通用 HTTP 框架。
 
 ## 结论
 
-当前实现没有发现需要替换的重型自研基础设施。
+选择 `Vapor`，不使用 `Hummingbird` 作为当前实现。
 
-### 已采用成熟库的部分
+## 决策理由
 
-- HTTP 导出服务使用 `FlyingFox` / `FlyingSocks`，不是自研 socket server。
-- JSON 编码 / 解码直接使用 `Foundation` 的 `Codable` / `JSONEncoder` / `JSONDecoder`。
-- 测试层使用 `Swift Testing`，没有额外自研测试框架。
+1. `Vapor` 官方仓库当前 `Package.swift` 明确声明支持 `iOS` SwiftPM 平台，可满足本仓库的 iOS SPM 集成前提。
+2. `Vapor` 社区规模、发布频率、生态完整度都明显高于当前的轻量本地 server 方案，更符合“成熟库优先”目标。
+3. 现有接口非常薄，只需要路由、端口监听和 JSON 响应；迁移到 `Vapor` 不需要改变业务层 `NeptuneExportService` 和 `NeptuneLogQueue`。
+4. `Hummingbird` 仅作为备选。由于 `Vapor` 在当前场景已可行，没有必要再引入第二优先级方案。
 
-### 自定义实现的部分
+## 保持不变的语义
 
-- `NeptuneLogQueue` 是一个内存队列，用于存放最近日志并支持分页。
-- `parseLogsQuery(cursorValue:limitValue:)` 只做基础 query 参数转型，没有引入自研协议解析器。
+迁移后保持以下行为不变：
 
-这些实现都属于业务轻量逻辑，不属于 SQLite / HTTP / CLI / 协议解析这类应优先复用成熟三方库的基础设施。
+1. 路由路径不变：
+   - `GET /v2/export/health`
+   - `GET /v2/export/metrics`
+   - `GET /v2/export/logs?cursor&limit`
+2. `logs` 的 query 解析语义不变：
+   - `cursor` 解析失败时按 `nil` 处理
+   - `limit` 缺省时默认为 `100`
+   - `limit` 为负数时钳制为 `0`
+3. 返回仍为 JSON，业务快照结构不变。
+4. `port = 0` 时仍支持系统分配可用端口，并可查询实际监听端口。
 
-## 风险判断
+## 实现说明
 
-- 当前没有持久化层，因此不需要引入 SQLite。
-- 当前没有 CLI 能力，因此不需要引入命令行解析库。
-- 当前 HTTP 服务已经基于成熟库实现，符合“成熟库优先”要求。
-- 现有内存队列容量固定，复杂度和风险都较低，后续如果演进为持久化或跨进程发送，再评估引入成熟队列 / 存储方案。
+1. 移除 `FlyingFox` / `FlyingSocks` 依赖，改为 `Vapor`。
+2. `NeptuneExportHTTPServer` 改为通过 `Application.make(...)` 与 `startup()/asyncShutdown()` 管理生命周期。
+3. 为避免 `swift test` 注入的测试参数被 `Vapor` 命令系统误解析，服务启动时使用最小化 `Environment(arguments:)`。
+4. 保留原有手写 JSON 响应，避免迁移时引入额外的内容协商差异。
 
 ## 验证
 
-- 已执行：`xcrun swift test`
-- 结果：4 个测试全部通过
+执行命令：
 
-## 结论摘要
+```bash
+swift test
+```
 
-本仓库当前状态符合“成熟库优先”的审计要求，因此本次未做代码替换，只补充审计记录。
+验证点：
+
+1. `health` 路由可访问。
+2. `metrics` 路由返回队列快照。
+3. `logs` 路由分页行为保持不变。
+4. `logs` 对非法 query 参数的回退语义保持不变。
+5. 现有 `NeptuneLogQueue` 单元测试继续通过。
+
+## 风险与取舍
+
+1. `Vapor` 首次冷编译成本明显高于 `FlyingFox`，依赖树更大。
+2. 当前收益在于统一到更成熟、维护更活跃的 HTTP 框架，而不是减少体积。
+3. 由于本地导出接口非常简单，后续若启动成本成为瓶颈，再评估是否做更细粒度裁剪，而不是回退到轻量但生态更弱的方案。

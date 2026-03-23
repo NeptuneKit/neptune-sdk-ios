@@ -1,6 +1,5 @@
-import FlyingFox
-import FlyingSocks
 import Foundation
+import Vapor
 
 public enum NeptuneExportHTTPServerError: Error, Sendable {
     case alreadyStarted
@@ -8,79 +7,58 @@ public enum NeptuneExportHTTPServerError: Error, Sendable {
 
 public actor NeptuneExportHTTPServer {
     private let service: NeptuneExportService
-    private var server: HTTPServer?
-    private var runTask: Task<Void, Error>?
+    private var application: Application?
 
     public init(service: NeptuneExportService = NeptuneExportService()) {
         self.service = service
     }
 
     public func start(port: UInt16) async throws {
-        guard server == nil else {
+        guard application == nil else {
             throw NeptuneExportHTTPServerError.alreadyStarted
         }
 
-        let server = HTTPServer(port: port)
-        await configureRoutes(for: server)
-
-        let runTask = Task {
-            try await server.run()
-        }
-
-        self.server = server
-        self.runTask = runTask
+        let environment = Environment(name: "production", arguments: ["NeptuneExportHTTPServer"])
+        let application = try await Application.make(environment)
+        application.http.server.configuration.hostname = "127.0.0.1"
+        application.http.server.configuration.port = Int(port)
+        configureRoutes(on: application)
 
         do {
-            try await server.waitUntilListening()
+            try await application.startup()
+            self.application = application
         } catch {
-            self.server = nil
-            self.runTask = nil
-            runTask.cancel()
-            _ = try? await runTask.value
+            try? await application.asyncShutdown()
             throw error
         }
     }
 
     public func stop() async {
-        let server = self.server
-        let runTask = self.runTask
-
-        self.server = nil
-        self.runTask = nil
-
-        await server?.stop(timeout: 0)
-        runTask?.cancel()
-        _ = try? await runTask?.value
+        let application = self.application
+        self.application = nil
+        try? await application?.asyncShutdown()
     }
 
     public func listeningPort() async -> UInt16? {
-        guard let server else {
-            return nil
-        }
-
-        switch await server.listeningAddress {
-        case let .ip4(_, port), let .ip6(_, port):
-            return port
-        case .unix, .none:
-            return nil
-        }
+        application?.http.server.shared.localAddress?.port.flatMap(UInt16.init(exactly:))
     }
 
-    private func configureRoutes(for server: HTTPServer) async {
+    private func configureRoutes(on application: Application) {
         let service = self.service
 
-        await server.appendRoute("GET /v2/export/health") { _ in
+        application.get("v2", "export", "health") { _ async throws in
             try Self.jsonResponse(await service.health())
         }
 
-        await server.appendRoute("GET /v2/export/metrics") { _ in
+        application.get("v2", "export", "metrics") { _ async throws in
             try Self.jsonResponse(await service.metrics())
         }
 
-        await server.appendRoute("GET /v2/export/logs") { request in
+        application.get("v2", "export", "logs") { request async throws in
+            let parameters = Self.logsQueryParameters(from: request)
             let query = Self.parseLogsQuery(
-                cursorValue: request.query["cursor"],
-                limitValue: request.query["limit"]
+                cursorValue: parameters.cursor,
+                limitValue: parameters.limit
             )
             let page = await service.logs(cursor: query.cursor, limit: query.limit)
             return try Self.jsonResponse(page)
@@ -93,13 +71,27 @@ public actor NeptuneExportHTTPServer {
         return (cursor: cursor, limit: max(0, limit))
     }
 
-    private static func jsonResponse<T: Encodable>(_ value: T) throws -> HTTPResponse {
+    private static func logsQueryParameters(from request: Request) -> (cursor: String?, limit: String?) {
+        guard let components = URLComponents(string: "http://127.0.0.1\(request.url.string)") else {
+            return (cursor: nil, limit: nil)
+        }
+
+        let items = components.queryItems ?? []
+        return (
+            cursor: items.first(where: { $0.name == "cursor" })?.value,
+            limit: items.first(where: { $0.name == "limit" })?.value
+        )
+    }
+
+    private static func jsonResponse<T: Encodable>(_ value: T) throws -> Response {
         let encoder = JSONEncoder()
         let body = try encoder.encode(value)
-        return HTTPResponse(
-            statusCode: .ok,
-            headers: [.contentType: "application/json; charset=utf-8"],
-            body: body
+        var headers = HTTPHeaders()
+        headers.contentType = .json
+        return Response(
+            status: .ok,
+            headers: headers,
+            body: .init(data: body)
         )
     }
 }

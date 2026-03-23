@@ -13,7 +13,7 @@ iOS 端 Neptune v2 SDK 最小骨架。
 
 ## 依赖
 - Swift 6
-- [FlyingFox](https://github.com/swhitty/FlyingFox)（SwiftPM 原生支持的成熟本地 HTTP server；`GCDWebServer` 当前不提供 SwiftPM 包）
+- [Vapor](https://github.com/vapor/vapor)（优先采用成熟库；官方 `Package.swift` 支持 iOS SwiftPM 场景）
 
 ## 运行示例
 ```swift
@@ -50,4 +50,6 @@ await server.stop()
 ## 开发说明
 - 运行测试：`swift test`
 - 测试框架：Swift Testing
+- 本地 HTTP 导出服务已从 `FlyingFox` 迁移到 `Vapor`
+- 路由与行为保持不变：`/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs?cursor&limit`
 - 当前实现优先保证本地导出服务可编译、可集成；持久化层后续补齐
