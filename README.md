@@ -108,3 +108,8 @@ await server.stop()
   - SQLite 模式重建后的日志恢复
   - SQLite 模式容量与 overflow 计数持久化
   - HTTP 导出接口兼容性
+
+## CI
+- GitHub Actions 会在 `push` 到 `main` 和 `pull_request` 时触发
+- 运行环境：`macos-15`
+- 执行命令：`xcrun swift test`
