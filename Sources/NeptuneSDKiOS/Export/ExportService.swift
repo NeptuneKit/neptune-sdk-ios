@@ -9,6 +9,10 @@ public struct NeptuneExportService: Sendable {
         self.queue = queue
     }
 
+    public init(storage: NeptuneLogQueue.Storage, capacity: Int = NeptuneLogQueue.capacity) throws {
+        self.queue = try NeptuneLogQueue(capacity: capacity, storage: storage)
+    }
+
     public func health() async -> NeptuneHealthSnapshot {
         NeptuneHealthSnapshot(version: Self.version)
     }

@@ -5,6 +5,13 @@ public struct NeptuneSDKiOS {
         NeptuneExportService()
     }
 
+    public static func makeExportService(
+        storage: NeptuneLogQueue.Storage,
+        capacity: Int = NeptuneLogQueue.capacity
+    ) throws -> NeptuneExportService {
+        try NeptuneExportService(storage: storage, capacity: capacity)
+    }
+
     public static func makeExportHTTPServer(service: NeptuneExportService = NeptuneExportService()) -> NeptuneExportHTTPServer {
         NeptuneExportHTTPServer(service: service)
     }
