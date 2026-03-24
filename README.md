@@ -116,6 +116,39 @@ swift run NeptuneSDKiOSSmokeDemo
 - 重新打开同一 SQLite 数据库，验证日志和 metrics 仍可恢复
 - 输出一份摘要，包含记录数、overflow 计数、日志 ID 和 HTTP 状态
 
+## Simulator App Demo（真实 iOS Demo 工程）
+
+仓库提供可在 iOS 模拟器安装运行的真实 Demo App：
+
+- 工程目录：`Examples/simulator-app`
+- 入口脚本：`scripts/simulator-demo.sh`
+- App Bundle ID：`com.neptunekit.demo.ios`
+
+执行：
+
+```bash
+bash scripts/simulator-demo.sh
+```
+
+脚本会自动完成：
+
+1. `tuist generate` 生成 `SimulatorApp.xcodeproj`
+2. 使用当前 Booted iOS Simulator 执行 `xcodebuild` 编译
+3. `simctl install` 安装 App
+4. `simctl launch` 拉起 App
+
+App 内提供三个操作按钮：
+
+- `Ingest 1 Log`
+- `Show Metrics`
+- `Start Export Server`
+
+导出服务默认监听 `127.0.0.1:18765`，可在模拟器内继续验证：
+
+- `/v2/export/health`
+- `/v2/export/metrics`
+- `/v2/export/logs`
+
 ## 接口兼容性
 - 导出路由保持不变：`/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs?cursor&limit`
 - `cursor` 解析失败时按 `nil` 处理
