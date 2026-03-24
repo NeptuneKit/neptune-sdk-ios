@@ -11,6 +11,7 @@ iOS 端 Neptune v2 SDK 最小骨架，当前已支持内存队列与可选 SQLit
   - 容量上限裁剪
   - overflow 计数
 - 导出服务：`health()`、`metrics()`、`logs(cursor:limit:)`
+- 网关发现：`NeptuneGatewayDiscoveryClient`
 - 本地 HTTP 导出服务：`NeptuneExportHTTPServer`
   - `GET /v2/export/health`
   - `GET /v2/export/metrics`
@@ -93,6 +94,64 @@ try await server.start(port: 8080)
 await server.stop()
 ```
 
+## 网关发现
+
+SDK 会先尝试通过 mDNS 找到候选网关，再回退到手动 DSN。每个候选都会请求 `GET /v2/gateway/discovery`，最终返回稳定的 `endpoint`、`source`、`host`、`port` 和 `version`。
+
+```swift
+import NeptuneSDKiOS
+
+let discovery = NeptuneSDKiOS.makeGatewayDiscoveryClient(
+    configuration: .init(
+        manualDSN: URL(string: "http://127.0.0.1:18765")
+    )
+)
+
+let result = try await discovery.discover()
+print(result.endpoint)
+print(result.source)
+print(result.host)
+print(result.port)
+print(result.version)
+```
+
+可按需注入测试替身：
+
+```swift
+let discovery = NeptuneGatewayDiscoveryClient(
+    configuration: .init(manualDSN: URL(string: "http://127.0.0.1:18765")),
+    browser: myMockBrowser,
+    transport: myMockTransport
+)
+```
+
+## WebSocket 客户端
+
+SDK 还提供一个基于 `URLSessionWebSocketTask` 的客户端入口。它会：
+
+- 启动后立即连接到发现到的网关 `GET /v2/ws`
+- 首包发送 `hello(role=sdk)`
+- 按 `15s` 周期发送 heartbeat
+- 在 `45s` 失联后触发重连
+- 使用 `0.5s / 1s / 2s / 4s / 8s` 的退避序列
+- 当 discovery endpoint 变化时自动切换
+- 收到 `command.dispatch(ping)` 时立即回 `command.ack(status=ok,timestamp)`，并输出可读日志
+
+```swift
+import NeptuneSDKiOS
+
+let client = NeptuneSDKiOS.makeGatewayWebSocketClient(
+    discovery: NeptuneSDKiOS.makeGatewayDiscoveryClient(
+        configuration: .init(manualDSN: URL(string: "http://127.0.0.1:18765"))
+    ),
+    output: { line in
+        print(line)
+    }
+)
+
+await client.start()
+```
+
 ## Smoke Demo
 
 仓库提供一个可直接执行的冒烟链路，用来验证 SDK 的接入、日志入队、HTTP 导出和 SQLite 重建能力。
@@ -116,6 +175,60 @@ swift run NeptuneSDKiOSSmokeDemo
 - 重新打开同一 SQLite 数据库，验证日志和 metrics 仍可恢复
 - 输出一份摘要，包含记录数、overflow 计数、日志 ID 和 HTTP 状态
 
+## XCFramework 打包
+
+仓库提供一键打包脚本：
+
+```bash
+bash scripts/build-xcframework.sh
+```
+
+默认输出：
+
+- `.build/artifacts/NeptuneSDKiOS.xcframework`
+
+脚本默认会在打包后执行运行时依赖检查（`otool -L`）：
+
+- 仅允许系统库、Swift Runtime 和 SDK 自身 framework
+- 如果发现第三方动态依赖，会失败并打印依赖清单，避免“以为已集成、实际需额外分发”的风险
+- 脚本默认使用 `BUILD_LIBRARY_FOR_DISTRIBUTION=NO`（兼容当前依赖编译），如需产出 `.swiftinterface` 可显式传 `--build-library-for-distribution YES`
+- 当 `BUILD_LIBRARY_FOR_DISTRIBUTION=NO` 时，脚本会自动使用 `-allow-internal-distribution` 生成 `xcframework`（适合内部团队分发）
+
+常用参数：
+
+```bash
+bash scripts/build-xcframework.sh --help
+bash scripts/build-xcframework.sh --skip-dependency-check
+bash scripts/build-xcframework.sh --allow-runtime-dependency GRDB
+bash scripts/build-xcframework.sh --build-library-for-distribution YES
+```
+
+### Release 自动挂载 XCFramework
+
+仓库内置发布资产脚本（用于 workflow 或本地手动预演）：
+
+```bash
+bash scripts/build-release-assets.sh --dry-run
+bash scripts/build-release-assets.sh --tag v1.2.3 --dry-run
+```
+
+说明：
+
+- `--tag` 可选，不传时默认使用当天日期版本，并在同日多次发布时自动递增（`YYYY.M.D`、`YYYY.M.D.1`、`YYYY.M.D.2`）
+- 支持两种版本格式：`vX.Y.Z` 或 `YYYY.M.D(.N)`
+
+正式执行时会：
+
+1. 调用 `build-xcframework.sh` 生成 `NeptuneSDKiOS.xcframework`
+2. 打包为 `NeptuneSDKiOS-<tag>.xcframework.zip`
+3. 生成 `NeptuneSDKiOS-<tag>.xcframework.zip.sha256`
+
+GitHub Actions 工作流：`.github/workflows/release-xcframework.yml`
+
+- 触发方式：`release published`（发布 release 后自动执行）或 `workflow_dispatch`
+- `workflow_dispatch` 未传 `tag_name` 时，会以当天日期作为版本号并基于当前提交构建
+- 执行结果：自动把 zip 与 sha256 挂载到对应 tag 的 GitHub Release
+
 ## Simulator App Demo（真实 iOS Demo 工程）
 
 仓库提供可在 iOS 模拟器安装运行的真实 Demo App：
@@ -137,11 +250,16 @@ bash scripts/simulator-demo.sh
 3. `simctl install` 安装 App
 4. `simctl launch` 拉起 App
 
-App 内提供三个操作按钮：
+App 内提供四个操作按钮：
 
 - `Ingest 1 Log`
 - `Show Metrics`
 - `Start Export Server`
+- `Discover Gateway`
+
+`Discover Gateway` 会先尝试 mDNS，再回退到 `http://127.0.0.1:18765`，并把 `source`、`host`、`port`、`version` 和 `endpoint` 直接打印到页面日志区。
+
+当 `Discover Gateway` 成功后，Demo 会自动向 CLI 网关发送一条 `POST /v2/logs:ingest` 请求，正文使用 `application/json`，并在页面日志区输出 `gateway ingest success` 或 `gateway ingest failure`。
 
 导出服务默认监听 `127.0.0.1:18765`，可在模拟器内继续验证：
 

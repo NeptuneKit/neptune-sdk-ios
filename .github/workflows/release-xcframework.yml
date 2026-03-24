@@ -1,0 +1,85 @@
+name: Release XCFramework
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to publish, for example v1.2.3"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_name="${{ inputs.tag_name }}"
+          checkout_ref="${GITHUB_SHA}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            tag_name="${{ github.event.release.tag_name }}"
+            checkout_ref="${tag_name}"
+          fi
+
+          if [[ -n "${tag_name}" ]]; then
+            checkout_ref="${tag_name}"
+          elif [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            tag_name="${GITHUB_REF_NAME}"
+            checkout_ref="${tag_name}"
+          fi
+
+          if [[ -z "${tag_name}" ]]; then
+            base_tag="$(date '+%Y.%-m.%-d')"
+            candidate_tag="${base_tag}"
+            suffix=1
+            repo_url="https://github.com/${GITHUB_REPOSITORY}.git"
+
+            while git ls-remote --quiet --exit-code --tags --refs "${repo_url}" "refs/tags/${candidate_tag}" >/dev/null 2>&1; do
+              candidate_tag="${base_tag}.${suffix}"
+              suffix=$((suffix + 1))
+            done
+
+            tag_name="${candidate_tag}"
+          fi
+
+          if [[ ! "${tag_name}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] && [[ ! "${tag_name}" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]; then
+            echo "${tag_name} must match ^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$ or ^[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}(\\.[0-9]+)?$" >&2
+            exit 1
+          fi
+
+          printf 'tag_name=%s\n' "${tag_name}" >> "${GITHUB_OUTPUT}"
+          printf 'checkout_ref=%s\n' "${checkout_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.release_tag.outputs.checkout_ref }}
+
+      - name: Build release assets
+        run: |
+          bash scripts/build-release-assets.sh \
+            --tag "${{ steps.release_tag.outputs.tag_name }}"
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag_name }}
+          files: |
+            .build/artifacts/release/NeptuneSDKiOS-${{ steps.release_tag.outputs.tag_name }}.xcframework.zip
+            .build/artifacts/release/NeptuneSDKiOS-${{ steps.release_tag.outputs.tag_name }}.xcframework.zip.sha256
+          fail_on_unmatched_files: true
