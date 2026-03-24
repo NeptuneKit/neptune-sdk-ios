@@ -93,6 +93,29 @@ try await server.start(port: 8080)
 await server.stop()
 ```
 
+## Smoke Demo
+
+仓库提供一个可直接执行的冒烟链路，用来验证 SDK 的接入、日志入队、HTTP 导出和 SQLite 重建能力。
+
+运行方式：
+
+```bash
+swift run NeptuneSDKiOSSmokeDemo
+```
+
+或者使用脚本包装：
+
+```bash
+./scripts/smoke-demo.sh
+```
+
+默认 demo 会：
+- 创建临时 SQLite 数据库
+- 通过 `NeptuneSDKiOS` 生成服务并写入一组日志
+- 启动本地 HTTP 导出服务并请求 `/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs`
+- 重新打开同一 SQLite 数据库，验证日志和 metrics 仍可恢复
+- 输出一份摘要，包含记录数、overflow 计数、日志 ID 和 HTTP 状态
+
 ## 接口兼容性
 - 导出路由保持不变：`/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs?cursor&limit`
 - `cursor` 解析失败时按 `nil` 处理
@@ -101,6 +124,7 @@ await server.stop()
 
 ## 开发说明
 - 运行测试：`xcrun swift test`
+- 运行冒烟 demo：`swift run NeptuneSDKiOSSmokeDemo`
 - 测试框架：Swift Testing
 - 当前测试覆盖：
   - 内存模式 overflow 行为
@@ -108,6 +132,7 @@ await server.stop()
   - SQLite 模式重建后的日志恢复
   - SQLite 模式容量与 overflow 计数持久化
   - HTTP 导出接口兼容性
+  - Smoke demo 的端到端编排与摘要输出
 
 ## CI
 - GitHub Actions 会在 `push` 到 `main` 和 `pull_request` 时触发

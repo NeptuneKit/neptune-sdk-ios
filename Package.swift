@@ -9,7 +9,8 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
-        .library(name: "NeptuneSDKiOS", targets: ["NeptuneSDKiOS"])
+        .library(name: "NeptuneSDKiOS", targets: ["NeptuneSDKiOS"]),
+        .executable(name: "NeptuneSDKiOSSmokeDemo", targets: ["NeptuneSDKiOSSmokeDemo"])
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", .upToNextMajor(from: "6.29.3")),
@@ -24,9 +25,19 @@ let package = Package(
             ],
             path: "Sources/NeptuneSDKiOS"
         ),
+        .target(
+            name: "NeptuneSDKiOSSmokeDemoSupport",
+            dependencies: ["NeptuneSDKiOS"],
+            path: "Sources/NeptuneSDKiOSSmokeDemoSupport"
+        ),
+        .executableTarget(
+            name: "NeptuneSDKiOSSmokeDemo",
+            dependencies: ["NeptuneSDKiOSSmokeDemoSupport"],
+            path: "Examples/SmokeDemo"
+        ),
         .testTarget(
             name: "NeptuneSDKiOSTests",
-            dependencies: ["NeptuneSDKiOS"],
+            dependencies: ["NeptuneSDKiOS", "NeptuneSDKiOSSmokeDemoSupport"],
             path: "Tests/NeptuneSDKiOSTests"
         )
     ]
