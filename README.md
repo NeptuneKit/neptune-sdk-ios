@@ -137,4 +137,6 @@ swift run NeptuneSDKiOSSmokeDemo
 ## CI
 - GitHub Actions 会在 `push` 到 `main` 和 `pull_request` 时触发
 - 运行环境：`macos-15`
-- 执行命令：`xcrun swift test`
+- 执行命令：
+  - `xcrun swift test`
+  - `./scripts/smoke-demo.sh`

@@ -17,3 +17,14 @@ jobs:
 
       - name: Run tests
         run: xcrun swift test
+
+  smoke-demo:
+    name: Smoke Demo
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run smoke demo
+        run: ./scripts/smoke-demo.sh
