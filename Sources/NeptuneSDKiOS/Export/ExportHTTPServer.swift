@@ -7,10 +7,15 @@ public enum NeptuneExportHTTPServerError: Error, Sendable {
 
 public actor NeptuneExportHTTPServer {
     private let service: NeptuneExportService
+    private let configuration: NeptuneExportHTTPServerConfiguration
     private var application: Application?
 
-    public init(service: NeptuneExportService = NeptuneExportService()) {
+    public init(
+        service: NeptuneExportService = NeptuneExportService(),
+        configuration: NeptuneExportHTTPServerConfiguration = .init()
+    ) {
         self.service = service
+        self.configuration = configuration
     }
 
     public func start(port: UInt16) async throws {
@@ -20,7 +25,7 @@ public actor NeptuneExportHTTPServer {
 
         let environment = Environment(name: "production", arguments: ["NeptuneExportHTTPServer"])
         let application = try await Application.make(environment)
-        application.http.server.configuration.hostname = "127.0.0.1"
+        application.http.server.configuration.hostname = configuration.hostname
         application.http.server.configuration.port = Int(port)
         configureRoutes(on: application)
 
@@ -63,6 +68,16 @@ public actor NeptuneExportHTTPServer {
             let page = await service.logs(cursor: query.cursor, limit: query.limit)
             return try Self.jsonResponse(page)
         }
+
+        application.post("v2", "client", "command") { request async throws in
+            let command = try request.content.decode(NeptuneClientCommandRequest.self)
+            return try Self.jsonResponse(Self.handleClientCommand(command))
+        }
+
+        application.post("v1", "client", "command") { request async throws in
+            let command = try request.content.decode(NeptuneClientCommandRequest.self)
+            return try Self.jsonResponse(Self.handleLegacyClientCommand(command))
+        }
     }
 
     static func parseLogsQuery(cursorValue: String?, limitValue: String?) -> (cursor: Int64?, limit: Int) {
@@ -93,5 +108,49 @@ public actor NeptuneExportHTTPServer {
             headers: headers,
             body: .init(data: body)
         )
+    }
+
+    private static func handleClientCommand(_ command: NeptuneClientCommandRequest) -> NeptuneClientCommandAck {
+        guard command.command == "ping" else {
+            return NeptuneClientCommandAck(
+                requestId: command.requestId,
+                command: command.command,
+                status: .error,
+                message: "unsupported command",
+                timestamp: Self.timestampString()
+            )
+        }
+
+        return NeptuneClientCommandAck(
+            requestId: command.requestId,
+            command: command.command,
+            status: .ok,
+            message: nil,
+            timestamp: Self.timestampString()
+        )
+    }
+
+    private static func handleLegacyClientCommand(_ command: NeptuneClientCommandRequest) -> NeptuneClientCommandAck {
+        guard command.command == "ping" else {
+            return NeptuneClientCommandAck(
+                requestId: command.requestId,
+                command: command.command,
+                status: .error,
+                message: "v1 only supports ping",
+                timestamp: Self.timestampString()
+            )
+        }
+
+        return NeptuneClientCommandAck(
+            requestId: command.requestId,
+            command: command.command,
+            status: .ok,
+            message: nil,
+            timestamp: Self.timestampString()
+        )
+    }
+
+    private static func timestampString() -> String {
+        ISO8601DateFormatter().string(from: Date())
     }
 }

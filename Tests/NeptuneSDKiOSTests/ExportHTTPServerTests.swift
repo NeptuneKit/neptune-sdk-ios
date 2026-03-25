@@ -7,6 +7,11 @@ import Testing
 
 @Suite("NeptuneSDKiOS Export HTTP Server")
 struct ExportHTTPServerTests {
+    @Test("Server defaults to 0.0.0.0 bind host")
+    func serverDefaultsToAllInterfaces() {
+        #expect(NeptuneExportHTTPServerConfiguration().hostname == "0.0.0.0")
+    }
+
     @Test("Health endpoint is reachable after server start")
     func healthEndpointIsReachable() async throws {
         let service = NeptuneExportService()
@@ -24,6 +29,66 @@ struct ExportHTTPServerTests {
             let snapshot = try JSONDecoder().decode(NeptuneHealthSnapshot.self, from: data)
             #expect(snapshot.ok)
             #expect(snapshot.version == NeptuneExportService.version)
+        } catch {
+            await server.stop()
+            throw error
+        }
+
+        await server.stop()
+    }
+
+    @Test("Client command ping returns a standard ACK on v2")
+    func v2ClientCommandPingReturnsAck() async throws {
+        let server = NeptuneExportHTTPServer(service: NeptuneExportService())
+        try await server.start(port: 0)
+        let port = try #require(await server.listeningPort())
+
+        do {
+            let request = Self.makeCommandRequest(
+                url: URL(string: "http://127.0.0.1:\(port)/v2/client/command")!,
+                requestId: "req-1",
+                command: "ping"
+            )
+            let (data, response) = try await URLSession.shared.upload(for: request, from: request.httpBody ?? Data())
+
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+
+            let ack = try JSONDecoder().decode(NeptuneClientCommandAck.self, from: data)
+            #expect(ack.requestId == "req-1")
+            #expect(ack.command == "ping")
+            #expect(ack.status == .ok)
+            #expect(ack.message == nil)
+            #expect(!ack.timestamp.isEmpty)
+        } catch {
+            await server.stop()
+            throw error
+        }
+
+        await server.stop()
+    }
+
+    @Test("Client command ping remains supported on v1")
+    func v1ClientCommandPingReturnsAck() async throws {
+        let server = NeptuneExportHTTPServer(service: NeptuneExportService())
+        try await server.start(port: 0)
+        let port = try #require(await server.listeningPort())
+
+        do {
+            let request = Self.makeCommandRequest(
+                url: URL(string: "http://127.0.0.1:\(port)/v1/client/command")!,
+                requestId: "req-legacy",
+                command: "ping"
+            )
+            let (data, response) = try await URLSession.shared.upload(for: request, from: request.httpBody ?? Data())
+
+            #expect((response as? HTTPURLResponse)?.statusCode == 200)
+
+            let ack = try JSONDecoder().decode(NeptuneClientCommandAck.self, from: data)
+            #expect(ack.requestId == "req-legacy")
+            #expect(ack.command == "ping")
+            #expect(ack.status == .ok)
+            #expect(ack.message == nil)
+            #expect(!ack.timestamp.isEmpty)
         } catch {
             await server.stop()
             throw error
@@ -142,5 +207,13 @@ struct ExportHTTPServerTests {
                 line: index
             )
         )
+    }
+
+    private static func makeCommandRequest(url: URL, requestId: String?, command: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try! JSONEncoder().encode(NeptuneClientCommandRequest(requestId: requestId, command: command))
+        return request
     }
 }

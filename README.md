@@ -16,6 +16,12 @@ iOS 端 Neptune v2 SDK 最小骨架，当前已支持内存队列与可选 SQLit
   - `GET /v2/export/health`
   - `GET /v2/export/metrics`
   - `GET /v2/export/logs?cursor&limit`
+  - `POST /v2/client/command`
+  - `POST /v1/client/command`
+- 网关主动回调注册：`NeptuneGatewayRegistrationClient`
+  - 启动后立即向 `POST /v2/clients:register` 注册
+  - 默认每 `30s` 续约一次
+  - `sessionId` 只用于展示，主键按 `platform + appId + deviceId` 组织
 
 ## 依赖
 - Swift 6
@@ -86,6 +92,7 @@ try await server.start(port: 8080)
 // http://127.0.0.1:8080/v2/export/health
 // http://127.0.0.1:8080/v2/export/metrics
 // http://127.0.0.1:8080/v2/export/logs?cursor=0&limit=50
+// http://127.0.0.1:8080/v2/client/command
 ```
 
 停止服务：
@@ -125,31 +132,41 @@ let discovery = NeptuneGatewayDiscoveryClient(
 )
 ```
 
-## WebSocket 客户端
+## 主动回调注册
 
-SDK 还提供一个基于 `URLSessionWebSocketTask` 的客户端入口。它会：
+SDK 还提供一个基于 `URLSession` 的注册/续约客户端入口。它会：
 
-- 启动后立即连接到发现到的网关 `GET /v2/ws`
-- 首包发送 `hello(role=sdk)`
-- 按 `15s` 周期发送 heartbeat
-- 在 `45s` 失联后触发重连
-- 使用 `0.5s / 1s / 2s / 4s / 8s` 的退避序列
-- 当 discovery endpoint 变化时自动切换
-- 收到 `command.dispatch(ping)` 时立即回 `command.ack(status=ok,timestamp)`，并输出可读日志
+- 启动后立即调用 discovery
+- 向 `POST /v2/clients:register` 发送客户端身份和本地 `commandUrl`
+- 默认每 `30s` 续约一次
+- 停止后不再续约，由网关 TTL 自动下线
+
+本地命令回调由 `NeptuneExportHTTPServer` 提供：
+
+- `POST /v2/client/command`
+- `POST /v1/client/command` 仅保留 `ping` 兼容
 
 ```swift
 import NeptuneSDKiOS
 
-let client = NeptuneSDKiOS.makeGatewayWebSocketClient(
+let client = NeptuneSDKiOS.makeGatewayRegistrationClient(
     discovery: NeptuneSDKiOS.makeGatewayDiscoveryClient(
         configuration: .init(manualDSN: URL(string: "http://127.0.0.1:18765"))
     ),
-    output: { line in
-        print(line)
-    }
+    configuration: .init(
+        appId: "demo.app",
+        sessionId: "session-1",
+        deviceId: "device-1",
+        commandUrl: URL(string: "http://127.0.0.1:8080/v2/client/command")!,
+        sdkName: "neptune-sdk-ios",
+        sdkVersion: NeptuneExportService.version
+    )
 )
 
 await client.start()
+
+// 前台恢复时如果需要立即刷新，可手动调用：
+// await client.registerNow()
 ```
 
 ## Smoke Demo
@@ -256,6 +273,8 @@ App 内提供四个操作按钮：
 - `Show Metrics`
 - `Start Export Server`
 - `Discover Gateway`
+
+App 启动后会自动触发一次 gateway discovery + `POST /v2/clients:register`，并在日志区输出 `gateway registration started`、`gateway registration discovery success/failure`、`gateway registration success/failure`。
 
 `Discover Gateway` 会先尝试 mDNS，再回退到 `http://127.0.0.1:18765`，并把 `source`、`host`、`port`、`version` 和 `endpoint` 直接打印到页面日志区。
 
