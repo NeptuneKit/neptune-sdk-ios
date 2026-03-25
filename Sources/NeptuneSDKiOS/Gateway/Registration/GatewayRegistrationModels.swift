@@ -1,8 +1,39 @@
 import Foundation
 
 public enum NeptuneGatewayRegistrationTransportPreference: String, Codable, Sendable, Equatable {
-    case http
-    case usbmuxd
+    case http = "httpCallback"
+    case webSocket
+    case usbmuxd = "usbmuxdHTTP"
+}
+
+public struct NeptuneGatewayUSBMuxdHint: Codable, Sendable, Equatable {
+    public var deviceID: Int
+    public var socketPath: String?
+
+    public init(deviceID: Int, socketPath: String? = nil) {
+        self.deviceID = deviceID
+        self.socketPath = socketPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case deviceID
+        case deviceId
+        case socketPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.deviceID =
+            try container.decodeIfPresent(Int.self, forKey: .deviceID)
+            ?? container.decode(Int.self, forKey: .deviceId)
+        self.socketPath = try container.decodeIfPresent(String.self, forKey: .socketPath)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(deviceID, forKey: .deviceID)
+        try container.encodeIfPresent(socketPath, forKey: .socketPath)
+    }
 }
 
 public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
@@ -11,7 +42,7 @@ public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
     public var sessionId: String
     public var deviceId: String
     public var preferredTransports: [NeptuneGatewayRegistrationTransportPreference]
-    public var usbmuxdHint: String?
+    public var usbmuxdHint: NeptuneGatewayUSBMuxdHint?
     public var callbackEndpoint: URL
     public var renewInterval: TimeInterval
     public var sdkName: String?
@@ -23,7 +54,7 @@ public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
         sessionId: String,
         deviceId: String,
         preferredTransports: [NeptuneGatewayRegistrationTransportPreference] = [.http],
-        usbmuxdHint: String? = nil,
+        usbmuxdHint: NeptuneGatewayUSBMuxdHint? = nil,
         callbackEndpoint: URL,
         renewInterval: TimeInterval = 30,
         sdkName: String? = nil,
@@ -34,7 +65,7 @@ public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
         self.sessionId = sessionId
         self.deviceId = deviceId
         self.preferredTransports = preferredTransports
-        self.usbmuxdHint = usbmuxdHint?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.usbmuxdHint = usbmuxdHint
         self.callbackEndpoint = callbackEndpoint
         self.renewInterval = max(0, renewInterval)
         self.sdkName = sdkName
@@ -62,7 +93,7 @@ public struct NeptuneGatewayRegistrationPayload: Codable, Sendable, Equatable {
     public var sessionId: String
     public var deviceId: String
     public var preferredTransports: [NeptuneGatewayRegistrationTransportPreference]
-    public var usbmuxdHint: String?
+    public var usbmuxdHint: NeptuneGatewayUSBMuxdHint?
     public var callbackEndpoint: URL
     public var sdkName: String?
     public var sdkVersion: String?
@@ -73,7 +104,7 @@ public struct NeptuneGatewayRegistrationPayload: Codable, Sendable, Equatable {
         sessionId: String,
         deviceId: String,
         preferredTransports: [NeptuneGatewayRegistrationTransportPreference] = [.http],
-        usbmuxdHint: String? = nil,
+        usbmuxdHint: NeptuneGatewayUSBMuxdHint? = nil,
         callbackEndpoint: URL,
         sdkName: String? = nil,
         sdkVersion: String? = nil

@@ -57,6 +57,7 @@ public struct BusEnvelope: Content, Sendable, Equatable {
 
 public struct BusAck: Content, Sendable, Equatable {
     public var requestId: String?
+    public var direction: BusDirection
     public var command: String?
     public var status: BusAckStatus
     public var message: String?
@@ -64,12 +65,14 @@ public struct BusAck: Content, Sendable, Equatable {
 
     public init(
         requestId: String?,
+        direction: BusDirection = .clientToCLI,
         command: String?,
         status: BusAckStatus,
         message: String?,
         timestamp: String
     ) {
         self.requestId = requestId
+        self.direction = direction
         self.command = command
         self.status = status
         self.message = message
@@ -136,6 +139,7 @@ public struct ClientMessageBus: Sendable {
     ) -> BusAck {
         BusAck(
             requestId: envelope.requestId,
+            direction: .clientToCLI,
             command: command ?? normalizedCommand(from: envelope.command),
             status: status,
             message: message,

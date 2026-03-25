@@ -12,7 +12,7 @@ struct GatewayRegistrationClientTests {
             sessionId: "session-123",
             deviceId: "device-456",
             preferredTransports: [.http, .usbmuxd],
-            usbmuxdHint: "device-456",
+            usbmuxdHint: .init(deviceID: 456),
             callbackEndpoint: URL(string: "http://127.0.0.1:19000/v2/client/command")!,
             sdkName: "neptune-sdk-ios",
             sdkVersion: "0.1.0"
@@ -32,8 +32,9 @@ struct GatewayRegistrationClientTests {
 
         #expect(decoded == payload)
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-        #expect(json["preferredTransports"] as? [String] == ["http", "usbmuxd"])
-        #expect(json["usbmuxdHint"] as? String == "device-456")
+        #expect(json["preferredTransports"] as? [String] == ["httpCallback", "usbmuxdHTTP"])
+        let usbmuxdHint = json["usbmuxdHint"] as? [String: Any]
+        #expect(usbmuxdHint?["deviceID"] as? Int == 456)
         #expect(json["callbackEndpoint"] as? String == "http://127.0.0.1:19000/v2/client/command")
         #expect(json["commandUrl"] == nil)
     }
@@ -74,7 +75,7 @@ struct GatewayRegistrationClientTests {
                 sessionId: "session-123",
                 deviceId: "device-456",
                 preferredTransports: [.http, .usbmuxd],
-                usbmuxdHint: "device-456",
+                usbmuxdHint: .init(deviceID: 456),
                 callbackEndpoint: URL(string: "http://127.0.0.1:19000/v2/client/command")!,
                 renewInterval: 30,
                 sdkName: "neptune-sdk-ios",
@@ -94,7 +95,7 @@ struct GatewayRegistrationClientTests {
         #expect(firstRequest.payload.deviceId == "device-456")
         #expect(firstRequest.payload.sessionId == "session-123")
         #expect(firstRequest.payload.preferredTransports == [.http, .usbmuxd])
-        #expect(firstRequest.payload.usbmuxdHint == "device-456")
+        #expect(firstRequest.payload.usbmuxdHint == .init(deviceID: 456))
         #expect(firstRequest.payload.callbackEndpoint.absoluteString == "http://127.0.0.1:19000/v2/client/command")
 
         #expect(await sleeper.sleepDurationsSnapshot() == [30])
