@@ -1,11 +1,18 @@
 import Foundation
 
+public enum NeptuneGatewayRegistrationTransportPreference: String, Codable, Sendable, Equatable {
+    case http
+    case usbmuxd
+}
+
 public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
     public var platform: String
     public var appId: String
     public var sessionId: String
     public var deviceId: String
-    public var commandUrl: URL
+    public var preferredTransports: [NeptuneGatewayRegistrationTransportPreference]
+    public var usbmuxdHint: String?
+    public var callbackEndpoint: URL
     public var renewInterval: TimeInterval
     public var sdkName: String?
     public var sdkVersion: String?
@@ -15,7 +22,9 @@ public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
         appId: String,
         sessionId: String,
         deviceId: String,
-        commandUrl: URL,
+        preferredTransports: [NeptuneGatewayRegistrationTransportPreference] = [.http],
+        usbmuxdHint: String? = nil,
+        callbackEndpoint: URL,
         renewInterval: TimeInterval = 30,
         sdkName: String? = nil,
         sdkVersion: String? = nil
@@ -24,7 +33,9 @@ public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
         self.appId = appId
         self.sessionId = sessionId
         self.deviceId = deviceId
-        self.commandUrl = commandUrl
+        self.preferredTransports = preferredTransports
+        self.usbmuxdHint = usbmuxdHint?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.callbackEndpoint = callbackEndpoint
         self.renewInterval = max(0, renewInterval)
         self.sdkName = sdkName
         self.sdkVersion = sdkVersion
@@ -36,7 +47,9 @@ public struct NeptuneGatewayRegistrationConfiguration: Sendable, Equatable {
             appId: appId,
             sessionId: sessionId,
             deviceId: deviceId,
-            commandUrl: commandUrl,
+            preferredTransports: preferredTransports,
+            usbmuxdHint: usbmuxdHint,
+            callbackEndpoint: callbackEndpoint,
             sdkName: sdkName,
             sdkVersion: sdkVersion
         )
@@ -48,7 +61,9 @@ public struct NeptuneGatewayRegistrationPayload: Codable, Sendable, Equatable {
     public var appId: String
     public var sessionId: String
     public var deviceId: String
-    public var commandUrl: URL
+    public var preferredTransports: [NeptuneGatewayRegistrationTransportPreference]
+    public var usbmuxdHint: String?
+    public var callbackEndpoint: URL
     public var sdkName: String?
     public var sdkVersion: String?
 
@@ -57,7 +72,9 @@ public struct NeptuneGatewayRegistrationPayload: Codable, Sendable, Equatable {
         appId: String,
         sessionId: String,
         deviceId: String,
-        commandUrl: URL,
+        preferredTransports: [NeptuneGatewayRegistrationTransportPreference] = [.http],
+        usbmuxdHint: String? = nil,
+        callbackEndpoint: URL,
         sdkName: String? = nil,
         sdkVersion: String? = nil
     ) {
@@ -65,7 +82,9 @@ public struct NeptuneGatewayRegistrationPayload: Codable, Sendable, Equatable {
         self.appId = appId
         self.sessionId = sessionId
         self.deviceId = deviceId
-        self.commandUrl = commandUrl
+        self.preferredTransports = preferredTransports
+        self.usbmuxdHint = usbmuxdHint
+        self.callbackEndpoint = callbackEndpoint
         self.sdkName = sdkName
         self.sdkVersion = sdkVersion
     }
@@ -126,4 +145,3 @@ public enum NeptuneGatewayRegistrationTransportError: Error, Sendable, Equatable
         }
     }
 }
-

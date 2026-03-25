@@ -11,6 +11,7 @@ public enum NeptuneGatewayIngestClient {
     }
 
     static func makeRequest(record: NeptuneIngestLogRecord, gatewayEndpoint: URL) throws -> URLRequest {
+        let envelope = ClientMessageBus().makeLogEnvelope(record)
         let requestURL = gatewayEndpoint
             .appendingPathComponent("v2")
             .appendingPathComponent("logs:ingest")
@@ -21,7 +22,7 @@ public enum NeptuneGatewayIngestClient {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = try makeEncoder().encode(record)
+        request.httpBody = try makeEncoder().encode(envelope)
         return request
     }
 

@@ -16,7 +16,7 @@ iOS 端 Neptune v2 SDK 最小骨架，当前已支持内存队列与可选 SQLit
   - `GET /v2/export/health`
   - `GET /v2/export/metrics`
   - `GET /v2/export/logs?cursor&limit`
-  - `POST /v2/client/command`
+  - `POST /v2/client/command`（接收 `BusEnvelope`，返回 `BusAck`）
   - `POST /v1/client/command`
 - 网关主动回调注册：`NeptuneGatewayRegistrationClient`
   - 启动后立即向 `POST /v2/clients:register` 注册
@@ -137,7 +137,7 @@ let discovery = NeptuneGatewayDiscoveryClient(
 SDK 还提供一个基于 `URLSession` 的注册/续约客户端入口。它会：
 
 - 启动后立即调用 discovery
-- 向 `POST /v2/clients:register` 发送客户端身份和本地 `commandUrl`
+- 向 `POST /v2/clients:register` 发送客户端身份和本地 `callbackEndpoint`
 - 默认每 `30s` 续约一次
 - 停止后不再续约，由网关 TTL 自动下线
 
@@ -157,7 +157,8 @@ let client = NeptuneSDKiOS.makeGatewayRegistrationClient(
         appId: "demo.app",
         sessionId: "session-1",
         deviceId: "device-1",
-        commandUrl: URL(string: "http://127.0.0.1:8080/v2/client/command")!,
+        preferredTransports: [.http],
+        callbackEndpoint: URL(string: "http://127.0.0.1:8080/v2/client/command")!,
         sdkName: "neptune-sdk-ios",
         sdkVersion: NeptuneExportService.version
     )

@@ -8,14 +8,17 @@ public enum NeptuneExportHTTPServerError: Error, Sendable {
 public actor NeptuneExportHTTPServer {
     private let service: NeptuneExportService
     private let configuration: NeptuneExportHTTPServerConfiguration
+    private let messageBus: ClientMessageBus
     private var application: Application?
 
     public init(
         service: NeptuneExportService = NeptuneExportService(),
-        configuration: NeptuneExportHTTPServerConfiguration = .init()
+        configuration: NeptuneExportHTTPServerConfiguration = .init(),
+        messageBus: ClientMessageBus = ClientMessageBus()
     ) {
         self.service = service
         self.configuration = configuration
+        self.messageBus = messageBus
     }
 
     public func start(port: UInt16) async throws {
@@ -50,6 +53,7 @@ public actor NeptuneExportHTTPServer {
 
     private func configureRoutes(on application: Application) {
         let service = self.service
+        let messageBus = self.messageBus
 
         application.get("v2", "export", "health") { _ async throws in
             try Self.jsonResponse(await service.health())
@@ -70,8 +74,8 @@ public actor NeptuneExportHTTPServer {
         }
 
         application.post("v2", "client", "command") { request async throws in
-            let command = try request.content.decode(NeptuneClientCommandRequest.self)
-            return try Self.jsonResponse(Self.handleClientCommand(command))
+            let envelope = try request.content.decode(BusEnvelope.self)
+            return try Self.jsonResponse(messageBus.acknowledgeInboundCommand(envelope))
         }
 
         application.post("v1", "client", "command") { request async throws in
@@ -107,26 +111,6 @@ public actor NeptuneExportHTTPServer {
             status: .ok,
             headers: headers,
             body: .init(data: body)
-        )
-    }
-
-    private static func handleClientCommand(_ command: NeptuneClientCommandRequest) -> NeptuneClientCommandAck {
-        guard command.command == "ping" else {
-            return NeptuneClientCommandAck(
-                requestId: command.requestId,
-                command: command.command,
-                status: .error,
-                message: "unsupported command",
-                timestamp: Self.timestampString()
-            )
-        }
-
-        return NeptuneClientCommandAck(
-            requestId: command.requestId,
-            command: command.command,
-            status: .ok,
-            message: nil,
-            timestamp: Self.timestampString()
         )
     }
 

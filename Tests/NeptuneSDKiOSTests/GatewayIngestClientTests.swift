@@ -4,7 +4,7 @@ import Testing
 
 @Suite("NeptuneSDKiOS Gateway Ingest")
 struct GatewayIngestClientTests {
-    @Test("Gateway ingest request uses JSON body and the expected endpoint")
+    @Test("Gateway ingest request wraps logs in a client_to_cli bus envelope")
     func requestUsesExpectedJSONBody() throws {
         let record = NeptuneIngestLogRecord(
             timestamp: "2026-03-24T10:11:12Z",
@@ -40,8 +40,11 @@ struct GatewayIngestClientTests {
         #expect(request.url?.absoluteString == "http://127.0.0.1:18765/v2/logs:ingest")
 
         let body = try #require(request.httpBody)
-        let decoded = try JSONDecoder().decode(NeptuneIngestLogRecord.self, from: body)
+        let decoded = try JSONDecoder().decode(BusEnvelope.self, from: body)
 
-        #expect(decoded == record)
+        #expect(decoded.direction == .clientToCLI)
+        #expect(decoded.kind == .log)
+        #expect(decoded.command == nil)
+        #expect(decoded.logRecord == record)
     }
 }

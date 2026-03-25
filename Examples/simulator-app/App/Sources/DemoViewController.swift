@@ -86,7 +86,7 @@ private actor DemoRuntime: DemoRuntimeManaging {
             log("gateway registration skipped: failed to start callback server: \(error.localizedDescription)")
             return
         }
-        let commandURL = URL(string: "http://\(demoCallbackHost):\(callbackPort)/v2/client/command")!
+        let callbackEndpoint = URL(string: "http://\(demoCallbackHost):\(callbackPort)/v2/client/command")!
 
         let loggingDiscovery = DemoLoggingGatewayDiscoveryClient(
             discovery: discoveryClient,
@@ -103,7 +103,8 @@ private actor DemoRuntime: DemoRuntimeManaging {
                 appId: "com.neptunekit.demo.ios",
                 sessionId: "simulator-session",
                 deviceId: await Self.defaultDeviceID(),
-                commandUrl: commandURL,
+                preferredTransports: [.http],
+                callbackEndpoint: callbackEndpoint,
                 renewInterval: demoGatewayRegistrationRenewInterval,
                 sdkName: "neptune-sdk-ios",
                 sdkVersion: NeptuneExportService.version
@@ -112,7 +113,7 @@ private actor DemoRuntime: DemoRuntimeManaging {
 
         registrationClient = client
         log(DemoGatewayRegistrationOutputFormatter.started(
-            commandUrl: commandURL,
+            callbackEndpoint: callbackEndpoint,
             renewInterval: demoGatewayRegistrationRenewInterval
         ))
         await client.start()
@@ -178,7 +179,7 @@ private struct DemoLoggingGatewayRegistrationTransport: NeptuneGatewayRegistrati
             try await transport.send(payload: payload, to: gatewayEndpoint)
             log(DemoGatewayRegistrationOutputFormatter.registrationSuccess(
                 gatewayEndpoint: gatewayEndpoint,
-                commandUrl: payload.commandUrl
+                callbackEndpoint: payload.callbackEndpoint
             ))
         } catch {
             log(DemoGatewayRegistrationOutputFormatter.registrationFailure(
@@ -201,8 +202,8 @@ enum DemoDiscoveryOutputFormatter {
 }
 
 enum DemoGatewayRegistrationOutputFormatter {
-    static func started(commandUrl: URL, renewInterval: TimeInterval) -> String {
-        "gateway registration started: POST /v2/clients:register commandUrl=\(commandUrl.absoluteString) renewInterval=\(formatSeconds(renewInterval))s"
+    static func started(callbackEndpoint: URL, renewInterval: TimeInterval) -> String {
+        "gateway registration started: POST /v2/clients:register callbackEndpoint=\(callbackEndpoint.absoluteString) renewInterval=\(formatSeconds(renewInterval))s"
     }
 
     static func discoveryAttempt() -> String {
@@ -217,8 +218,8 @@ enum DemoGatewayRegistrationOutputFormatter {
         "gateway registration discovery failure: \(error.localizedDescription)"
     }
 
-    static func registrationSuccess(gatewayEndpoint: URL, commandUrl: URL) -> String {
-        "gateway registration success: POST /v2/clients:register gatewayEndpoint=\(gatewayEndpoint.absoluteString) commandUrl=\(commandUrl.absoluteString)"
+    static func registrationSuccess(gatewayEndpoint: URL, callbackEndpoint: URL) -> String {
+        "gateway registration success: POST /v2/clients:register gatewayEndpoint=\(gatewayEndpoint.absoluteString) callbackEndpoint=\(callbackEndpoint.absoluteString)"
     }
 
     static func registrationFailure(_ error: Error, gatewayEndpoint: URL) -> String {

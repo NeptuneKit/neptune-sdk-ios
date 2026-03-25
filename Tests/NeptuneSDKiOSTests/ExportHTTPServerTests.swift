@@ -37,14 +37,14 @@ struct ExportHTTPServerTests {
         await server.stop()
     }
 
-    @Test("Client command ping returns a standard ACK on v2")
+    @Test("Client command ping returns a bus ACK on v2")
     func v2ClientCommandPingReturnsAck() async throws {
         let server = NeptuneExportHTTPServer(service: NeptuneExportService())
         try await server.start(port: 0)
         let port = try #require(await server.listeningPort())
 
         do {
-            let request = Self.makeCommandRequest(
+            let request = Self.makeV2CommandRequest(
                 url: URL(string: "http://127.0.0.1:\(port)/v2/client/command")!,
                 requestId: "req-1",
                 command: "ping"
@@ -53,7 +53,7 @@ struct ExportHTTPServerTests {
 
             #expect((response as? HTTPURLResponse)?.statusCode == 200)
 
-            let ack = try JSONDecoder().decode(NeptuneClientCommandAck.self, from: data)
+            let ack = try JSONDecoder().decode(BusAck.self, from: data)
             #expect(ack.requestId == "req-1")
             #expect(ack.command == "ping")
             #expect(ack.status == .ok)
@@ -74,7 +74,7 @@ struct ExportHTTPServerTests {
         let port = try #require(await server.listeningPort())
 
         do {
-            let request = Self.makeCommandRequest(
+            let request = Self.makeV1CommandRequest(
                 url: URL(string: "http://127.0.0.1:\(port)/v1/client/command")!,
                 requestId: "req-legacy",
                 command: "ping"
@@ -209,7 +209,22 @@ struct ExportHTTPServerTests {
         )
     }
 
-    private static func makeCommandRequest(url: URL, requestId: String?, command: String) -> URLRequest {
+    private static func makeV2CommandRequest(url: URL, requestId: String?, command: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try! JSONEncoder().encode(
+            BusEnvelope(
+                requestId: requestId,
+                direction: .cliToClient,
+                kind: .command,
+                command: command
+            )
+        )
+        return request
+    }
+
+    private static func makeV1CommandRequest(url: URL, requestId: String?, command: String) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

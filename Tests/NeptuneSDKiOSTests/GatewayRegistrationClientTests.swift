@@ -4,14 +4,16 @@ import Testing
 
 @Suite("NeptuneSDKiOS Gateway Registration")
 struct GatewayRegistrationClientTests {
-    @Test("Register request targets /v2/clients:register and includes the command URL")
+    @Test("Register request targets /v2/clients:register and includes the v2 callback fields")
     func registerRequestIncludesExpectedPayload() throws {
         let payload = NeptuneGatewayRegistrationPayload(
             platform: "ios",
             appId: "com.neptune.demo",
             sessionId: "session-123",
             deviceId: "device-456",
-            commandUrl: URL(string: "http://127.0.0.1:19000/v2/client/command")!,
+            preferredTransports: [.http, .usbmuxd],
+            usbmuxdHint: "device-456",
+            callbackEndpoint: URL(string: "http://127.0.0.1:19000/v2/client/command")!,
             sdkName: "neptune-sdk-ios",
             sdkVersion: "0.1.0"
         )
@@ -29,6 +31,11 @@ struct GatewayRegistrationClientTests {
         let decoded = try JSONDecoder().decode(NeptuneGatewayRegistrationPayload.self, from: body)
 
         #expect(decoded == payload)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["preferredTransports"] as? [String] == ["http", "usbmuxd"])
+        #expect(json["usbmuxdHint"] as? String == "device-456")
+        #expect(json["callbackEndpoint"] as? String == "http://127.0.0.1:19000/v2/client/command")
+        #expect(json["commandUrl"] == nil)
     }
 
     @Test("Registration starts immediately and renews on the configured interval")
@@ -66,7 +73,9 @@ struct GatewayRegistrationClientTests {
                 appId: "com.neptune.demo",
                 sessionId: "session-123",
                 deviceId: "device-456",
-                commandUrl: URL(string: "http://127.0.0.1:19000/v2/client/command")!,
+                preferredTransports: [.http, .usbmuxd],
+                usbmuxdHint: "device-456",
+                callbackEndpoint: URL(string: "http://127.0.0.1:19000/v2/client/command")!,
                 renewInterval: 30,
                 sdkName: "neptune-sdk-ios",
                 sdkVersion: "0.1.0"
@@ -84,7 +93,9 @@ struct GatewayRegistrationClientTests {
         #expect(firstRequest.payload.appId == "com.neptune.demo")
         #expect(firstRequest.payload.deviceId == "device-456")
         #expect(firstRequest.payload.sessionId == "session-123")
-        #expect(firstRequest.payload.commandUrl.absoluteString == "http://127.0.0.1:19000/v2/client/command")
+        #expect(firstRequest.payload.preferredTransports == [.http, .usbmuxd])
+        #expect(firstRequest.payload.usbmuxdHint == "device-456")
+        #expect(firstRequest.payload.callbackEndpoint.absoluteString == "http://127.0.0.1:19000/v2/client/command")
 
         #expect(await sleeper.sleepDurationsSnapshot() == [30])
 
@@ -203,4 +214,3 @@ private actor ControlledGatewayRegistrationSleeper: NeptuneGatewayRegistrationSl
 private enum MockGatewayRegistrationError: Error {
     case discoveryUnavailable
 }
-

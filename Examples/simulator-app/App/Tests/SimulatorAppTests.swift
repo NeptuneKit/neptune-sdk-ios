@@ -59,14 +59,14 @@ final class SimulatorAppTests: XCTestCase {
     }
 
     func testGatewayRegistrationOutputFormatterIncludesClientsRegister() {
-        let commandUrl = URL(string: "http://127.0.0.1:18766/v2/client/command")!
+        let callbackEndpoint = URL(string: "http://127.0.0.1:18766/v2/client/command")!
 
         XCTAssertEqual(
             DemoGatewayRegistrationOutputFormatter.started(
-                commandUrl: commandUrl,
+                callbackEndpoint: callbackEndpoint,
                 renewInterval: 5
             ),
-            "gateway registration started: POST /v2/clients:register commandUrl=http://127.0.0.1:18766/v2/client/command renewInterval=5s"
+            "gateway registration started: POST /v2/clients:register callbackEndpoint=http://127.0.0.1:18766/v2/client/command renewInterval=5s"
         )
 
         XCTAssertEqual(
@@ -77,9 +77,9 @@ final class SimulatorAppTests: XCTestCase {
         XCTAssertEqual(
             DemoGatewayRegistrationOutputFormatter.registrationSuccess(
                 gatewayEndpoint: URL(string: "http://127.0.0.1:18765")!,
-                commandUrl: commandUrl
+                callbackEndpoint: callbackEndpoint
             ),
-            "gateway registration success: POST /v2/clients:register gatewayEndpoint=http://127.0.0.1:18765 commandUrl=http://127.0.0.1:18766/v2/client/command"
+            "gateway registration success: POST /v2/clients:register gatewayEndpoint=http://127.0.0.1:18765 callbackEndpoint=http://127.0.0.1:18766/v2/client/command"
         )
     }
 
