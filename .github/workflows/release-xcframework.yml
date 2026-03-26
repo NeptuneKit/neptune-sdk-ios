@@ -1,9 +1,9 @@
 name: Release XCFramework
 
 on:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - "*"
   workflow_dispatch:
     inputs:
       tag_name:
@@ -28,12 +28,7 @@ jobs:
           set -euo pipefail
 
           tag_name="${{ inputs.tag_name }}"
-          checkout_ref="${GITHUB_SHA}"
-
-          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-            tag_name="${{ github.event.release.tag_name }}"
-            checkout_ref="${tag_name}"
-          fi
+          checkout_ref="${GITHUB_REF_NAME:-$GITHUB_SHA}"
 
           if [[ -n "${tag_name}" ]]; then
             checkout_ref="${tag_name}"
@@ -43,6 +38,11 @@ jobs:
           fi
 
           if [[ -z "${tag_name}" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
+              echo "workflow_dispatch from a branch requires inputs.tag_name" >&2
+              exit 1
+            fi
+
             base_tag="$(date '+%Y.%-m.%-d')"
             candidate_tag="${base_tag}"
             suffix=1
