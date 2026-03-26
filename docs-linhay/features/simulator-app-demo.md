@@ -21,5 +21,5 @@
 3. App UI 至少提供四个动作：写日志、看指标、启动导出服务、发现网关
 4. App 启动后自动触发 `discover -> POST /v2/clients:register`，并在日志区输出可定位的成功/失败关键字
 5. `Discover Gateway` 成功后自动向 CLI 网关发送一条 `POST /v2/logs:ingest` 的 JSON 日志，并在 UI 输出 `gateway ingest success` 或 `gateway ingest failure`
-6. 导出路由保持 `/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs`
+6. 导出路由保持 `/v2/export/health`、`/v2/export/metrics`、`/v2/logs`
 7. 不影响现有 `swift test` 与 `smoke-demo.sh` 链路

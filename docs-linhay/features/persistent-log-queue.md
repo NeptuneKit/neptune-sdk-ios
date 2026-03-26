@@ -23,7 +23,7 @@
 - Given 使用 `NeptuneLogQueue()` 或 `NeptuneExportService()` 初始化
 - When 写入日志并查询 metrics 与 logs
 - Then 行为与当前版本一致
-- And 导出 API 继续兼容 `/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs`
+- And 导出 API 继续兼容 `/v2/export/health`、`/v2/export/metrics`、`/v2/logs`
 
 ### 场景 2：持久化模式在重建实例后保留日志
 

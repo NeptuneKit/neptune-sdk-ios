@@ -15,7 +15,7 @@ iOS 端 Neptune v2 SDK 最小骨架，当前已支持内存队列与可选 SQLit
 - 本地 HTTP 导出服务：`NeptuneExportHTTPServer`
   - `GET /v2/export/health`
   - `GET /v2/export/metrics`
-  - `GET /v2/export/logs?cursor&limit`
+  - `GET /v2/logs?cursor&limit`
   - `POST /v2/client/command`（接收 `BusEnvelope`，返回 `BusAck`）
   - `POST /v1/client/command`
 - 网关主动回调注册：`NeptuneGatewayRegistrationClient`
@@ -91,7 +91,7 @@ try await server.start(port: 8080)
 
 // http://127.0.0.1:8080/v2/export/health
 // http://127.0.0.1:8080/v2/export/metrics
-// http://127.0.0.1:8080/v2/export/logs?cursor=0&limit=50
+// http://127.0.0.1:8080/v2/logs?cursor=0&limit=50
 // http://127.0.0.1:8080/v2/client/command
 ```
 
@@ -189,7 +189,7 @@ swift run NeptuneSDKiOSSmokeDemo
 默认 demo 会：
 - 创建临时 SQLite 数据库
 - 通过 `NeptuneSDKiOS` 生成服务并写入一组日志
-- 启动本地 HTTP 导出服务并请求 `/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs`
+- 启动本地 HTTP 导出服务并请求 `/v2/export/health`、`/v2/export/metrics`、`/v2/logs`
 - 重新打开同一 SQLite 数据库，验证日志和 metrics 仍可恢复
 - 输出一份摘要，包含记录数、overflow 计数、日志 ID 和 HTTP 状态
 
@@ -285,10 +285,10 @@ App 启动后会自动触发一次 gateway discovery + `POST /v2/clients:registe
 
 - `/v2/export/health`
 - `/v2/export/metrics`
-- `/v2/export/logs`
+- `/v2/logs`
 
 ## 接口兼容性
-- 导出路由保持不变：`/v2/export/health`、`/v2/export/metrics`、`/v2/export/logs?cursor&limit`
+- 导出路由保持不变：`/v2/export/health`、`/v2/export/metrics`、`/v2/logs?cursor&limit`
 - `cursor` 解析失败时按 `nil` 处理
 - `limit` 缺省时默认为 `100`
 - `limit` 为负数时钳制为 `0`

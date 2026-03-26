@@ -8,7 +8,7 @@
 
 - `GET /v2/export/health`
 - `GET /v2/export/metrics`
-- `GET /v2/export/logs?cursor&limit`
+- `GET /v2/logs?cursor&limit`
 
 本次按“成熟库优先”硬切要求，评估是否迁移到更主流、维护更活跃的通用 HTTP 框架。
 
@@ -30,7 +30,7 @@
 1. 路由路径不变：
    - `GET /v2/export/health`
    - `GET /v2/export/metrics`
-   - `GET /v2/export/logs?cursor&limit`
+   - `GET /v2/logs?cursor&limit`
 2. `logs` 的 query 解析语义不变：
    - `cursor` 解析失败时按 `nil` 处理
    - `limit` 缺省时默认为 `100`
