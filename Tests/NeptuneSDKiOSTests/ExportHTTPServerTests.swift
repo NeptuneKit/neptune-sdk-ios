@@ -110,7 +110,7 @@ struct ExportHTTPServerTests {
         let port = try #require(await server.listeningPort())
 
         do {
-            let url = URL(string: "http://127.0.0.1:\(port)/v2/export/logs?cursor=2&limit=2")!
+            let url = URL(string: "http://127.0.0.1:\(port)/v2/logs?cursor=2&limit=2")!
             let (data, response) = try await URLSession.shared.data(from: url)
 
             #expect((response as? HTTPURLResponse)?.statusCode == 200)
@@ -171,7 +171,7 @@ struct ExportHTTPServerTests {
         let port = try #require(await server.listeningPort())
 
         do {
-            let url = URL(string: "http://127.0.0.1:\(port)/v2/export/logs?cursor=abc&limit=-1")!
+            let url = URL(string: "http://127.0.0.1:\(port)/v2/logs?cursor=abc&limit=-1")!
             let (data, response) = try await URLSession.shared.data(from: url)
 
             #expect((response as? HTTPURLResponse)?.statusCode == 200)

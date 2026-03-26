@@ -145,7 +145,7 @@ public struct NeptuneSmokeDemoRunner: Sendable {
 
             let healthURL = Self.makeURL(port: port, path: "/v2/export/health")
             let metricsURL = Self.makeURL(port: port, path: "/v2/export/metrics")
-            let logsURL = Self.makeURL(port: port, path: "/v2/export/logs?cursor=0&limit=\(max(1, configuration.pageLimit))")
+            let logsURL = Self.makeURL(port: port, path: "/v2/logs?cursor=0&limit=\(max(1, configuration.pageLimit))")
 
             let health = try await Self.fetchJSON(from: healthURL, as: NeptuneHealthSnapshot.self)
             let metrics = try await Self.fetchJSON(from: metricsURL, as: NeptuneMetricsSnapshot.self)

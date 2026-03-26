@@ -63,7 +63,7 @@ public actor NeptuneExportHTTPServer {
             try Self.jsonResponse(await service.metrics())
         }
 
-        application.get("v2", "export", "logs") { request async throws in
+        application.get("v2", "logs") { request async throws in
             let parameters = Self.logsQueryParameters(from: request)
             let query = Self.parseLogsQuery(
                 cursorValue: parameters.cursor,
