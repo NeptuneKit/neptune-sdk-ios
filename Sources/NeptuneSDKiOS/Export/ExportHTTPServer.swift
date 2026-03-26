@@ -67,10 +67,10 @@ public actor NeptuneExportHTTPServer {
             let parameters = Self.logsQueryParameters(from: request)
             let query = Self.parseLogsQuery(
                 cursorValue: parameters.cursor,
-                limitValue: parameters.limit
+                lengthValue: parameters.length
             )
-            let page = await service.logs(cursor: query.cursor, limit: query.limit)
-            return try Self.jsonResponse(page)
+            let page = await service.logs(cursor: query.cursor, limit: query.length ?? .max)
+            return try Self.jsonResponse(NeptuneExportLogsResponse(page: page))
         }
 
         application.post("v2", "client", "command") { request async throws in
@@ -84,21 +84,23 @@ public actor NeptuneExportHTTPServer {
         }
     }
 
-    static func parseLogsQuery(cursorValue: String?, limitValue: String?) -> (cursor: Int64?, limit: Int) {
+    static func parseLogsQuery(cursorValue: String?, lengthValue: String?) -> (cursor: Int64?, length: Int?) {
         let cursor = cursorValue.flatMap(Int64.init)
-        let limit = limitValue.flatMap(Int.init) ?? 100
-        return (cursor: cursor, limit: max(0, limit))
+        let length = lengthValue.flatMap(Int.init).flatMap { parsed in
+            parsed > 0 ? parsed : nil
+        }
+        return (cursor: cursor, length: length)
     }
 
-    private static func logsQueryParameters(from request: Request) -> (cursor: String?, limit: String?) {
+    private static func logsQueryParameters(from request: Request) -> (cursor: String?, length: String?) {
         guard let components = URLComponents(string: "http://127.0.0.1\(request.url.string)") else {
-            return (cursor: nil, limit: nil)
+            return (cursor: nil, length: nil)
         }
 
         let items = components.queryItems ?? []
         return (
             cursor: items.first(where: { $0.name == "cursor" })?.value,
-            limit: items.first(where: { $0.name == "limit" })?.value
+            length: items.first(where: { $0.name == "length" })?.value
         )
     }
 
@@ -136,5 +138,15 @@ public actor NeptuneExportHTTPServer {
 
     private static func timestampString() -> String {
         ISO8601DateFormatter().string(from: Date())
+    }
+}
+
+private struct NeptuneExportLogsResponse: Codable, Sendable, Equatable {
+    let records: [NeptuneLogRecord]
+    let hasMore: Bool
+
+    init(page: NeptuneLogsPage) {
+        self.records = page.records
+        self.hasMore = page.hasMore
     }
 }

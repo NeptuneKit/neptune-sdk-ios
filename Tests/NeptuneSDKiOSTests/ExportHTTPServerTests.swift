@@ -97,7 +97,7 @@ struct ExportHTTPServerTests {
         await server.stop()
     }
 
-    @Test("Logs endpoint converts cursor and limit query parameters")
+    @Test("Logs endpoint converts cursor and length query parameters")
     func logsEndpointUsesPagingQuery() async throws {
         let service = NeptuneExportService()
         let server = NeptuneExportHTTPServer(service: service)
@@ -110,14 +110,13 @@ struct ExportHTTPServerTests {
         let port = try #require(await server.listeningPort())
 
         do {
-            let url = URL(string: "http://127.0.0.1:\(port)/v2/logs?cursor=2&limit=2")!
+            let url = URL(string: "http://127.0.0.1:\(port)/v2/logs?cursor=2&length=2")!
             let (data, response) = try await URLSession.shared.data(from: url)
 
             #expect((response as? HTTPURLResponse)?.statusCode == 200)
 
-            let page = try JSONDecoder().decode(NeptuneLogsPage.self, from: data)
+            let page = try JSONDecoder().decode(ExportLogsResponse.self, from: data)
             #expect(page.records.map(\.id) == [3, 4])
-            #expect(page.nextCursor == 4)
             #expect(page.hasMore)
         } catch {
             await server.stop()
@@ -171,15 +170,14 @@ struct ExportHTTPServerTests {
         let port = try #require(await server.listeningPort())
 
         do {
-            let url = URL(string: "http://127.0.0.1:\(port)/v2/logs?cursor=abc&limit=-1")!
+            let url = URL(string: "http://127.0.0.1:\(port)/v2/logs?cursor=abc&length=-1")!
             let (data, response) = try await URLSession.shared.data(from: url)
 
             #expect((response as? HTTPURLResponse)?.statusCode == 200)
 
-            let page = try JSONDecoder().decode(NeptuneLogsPage.self, from: data)
-            #expect(page.records.isEmpty)
-            #expect(page.nextCursor == nil)
-            #expect(page.hasMore)
+            let page = try JSONDecoder().decode(ExportLogsResponse.self, from: data)
+            #expect(page.records.map(\.id) == [1, 2])
+            #expect(!page.hasMore)
         } catch {
             await server.stop()
             throw error
@@ -231,4 +229,9 @@ struct ExportHTTPServerTests {
         request.httpBody = try! JSONEncoder().encode(NeptuneClientCommandRequest(requestId: requestId, command: command))
         return request
     }
+}
+
+private struct ExportLogsResponse: Codable {
+    let records: [NeptuneLogRecord]
+    let hasMore: Bool
 }
