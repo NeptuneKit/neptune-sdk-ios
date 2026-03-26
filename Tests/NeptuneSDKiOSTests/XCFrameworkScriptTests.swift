@@ -111,6 +111,91 @@ struct XCFrameworkScriptTests {
         #expect(result.output.contains("release_tag=\(dateBase).1"))
     }
 
+    @Test("运行时依赖检查应忽略静态成员条目")
+    func runtimeDependencyCheckIgnoresStaticObjectEntries() throws {
+        let scriptPath = projectRoot()
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("build-xcframework.sh")
+            .path
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("neptune-xcframework-check-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let frameworkDir = tempDir
+            .appendingPathComponent("Fake.xcframework/ios-arm64/NeptuneSDKiOS.framework", isDirectory: true)
+        try FileManager.default.createDirectory(at: frameworkDir, withIntermediateDirectories: true)
+        let binaryPath = frameworkDir.appendingPathComponent("NeptuneSDKiOS")
+        FileManager.default.createFile(atPath: binaryPath.path, contents: Data([0]))
+
+        let fakeOtoolPath = tempDir.appendingPathComponent("otool")
+        let fakeOtoolScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        target="$2"
+        cat <<EOF
+        $target:
+            $target(_AtomicsShims.o) (compatibility version 0.0.0, current version 0.0.0)
+            /usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)
+        EOF
+        """
+        try fakeOtoolScript.write(to: fakeOtoolPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOtoolPath.path)
+
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "\(tempDir.path):\(env["PATH"] ?? "")"
+        let result = try runScript(
+            scriptPath: scriptPath,
+            arguments: ["--framework-name", "NeptuneSDKiOS", "--check-runtime-dependencies-only", tempDir.appendingPathComponent("Fake.xcframework").path],
+            environment: env
+        )
+        #expect(result.status == 0)
+        #expect(result.output.contains("runtime dependency check passed"))
+    }
+
+    @Test("运行时依赖检查遇到三方动态库应失败")
+    func runtimeDependencyCheckFailsOnThirdPartyDynamicLibrary() throws {
+        let scriptPath = projectRoot()
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("build-xcframework.sh")
+            .path
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("neptune-xcframework-leak-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let frameworkDir = tempDir
+            .appendingPathComponent("Fake.xcframework/ios-arm64/NeptuneSDKiOS.framework", isDirectory: true)
+        try FileManager.default.createDirectory(at: frameworkDir, withIntermediateDirectories: true)
+        let binaryPath = frameworkDir.appendingPathComponent("NeptuneSDKiOS")
+        FileManager.default.createFile(atPath: binaryPath.path, contents: Data([0]))
+
+        let fakeOtoolPath = tempDir.appendingPathComponent("otool")
+        let fakeOtoolScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        target="$2"
+        cat <<EOF
+        $target:
+            /tmp/libBadDependency.dylib (compatibility version 1.0.0, current version 1.0.0)
+        EOF
+        """
+        try fakeOtoolScript.write(to: fakeOtoolPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeOtoolPath.path)
+
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "\(tempDir.path):\(env["PATH"] ?? "")"
+        let result = try runScript(
+            scriptPath: scriptPath,
+            arguments: ["--framework-name", "NeptuneSDKiOS", "--check-runtime-dependencies-only", tempDir.appendingPathComponent("Fake.xcframework").path],
+            environment: env
+        )
+        #expect(result.status != 0)
+        #expect(result.output.contains("检测到非系统动态依赖"))
+    }
+
     private func projectRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // NeptuneSDKiOSTests

@@ -12,6 +12,7 @@ ARCHIVES_DIR=""
 DERIVED_DATA_PATH=""
 STAGING_DIR=""
 SKIP_DEPENDENCY_CHECK=0
+CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH=""
 ALLOW_RUNTIME_DEPENDENCIES=()
 
 usage() {
@@ -30,6 +31,8 @@ Options:
   --derived-data-path <path>          DerivedData 目录
   --allow-runtime-dependency <name>   允许的运行时动态依赖（可重复）
   --skip-dependency-check             跳过 otool 依赖检查
+  --check-runtime-dependencies-only <xcframework-path>
+                                      仅执行运行时依赖检查并退出（用于验证/测试）
   --help                              显示帮助
 EOF
 }
@@ -201,6 +204,9 @@ check_runtime_dependencies() {
     local dependency
     while IFS= read -r dependency; do
       [[ -z "$dependency" ]] && continue
+      if [[ "$dependency" == "$binary_path"*"("*.o")" ]]; then
+        continue
+      fi
       # 静态产物经 otool -L 输出时会包含 "binary(member.o):" 之类条目，需跳过。
       if [[ "$dependency" != /* ]] && [[ "$dependency" != @rpath/* ]] && [[ "$dependency" != @loader_path/* ]] && [[ "$dependency" != @executable_path/* ]]; then
         continue
@@ -279,6 +285,11 @@ while [[ "$#" -gt 0 ]]; do
       SKIP_DEPENDENCY_CHECK=1
       shift 1
       ;;
+    --check-runtime-dependencies-only)
+      [[ "$#" -ge 2 ]] || die "--check-runtime-dependencies-only 需要参数"
+      CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH="$2"
+      shift 2
+      ;;
     --help)
       usage
       exit 0
@@ -288,6 +299,16 @@ while [[ "$#" -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH" ]]; then
+  if ! command -v otool >/dev/null 2>&1; then
+    die "未找到 otool，请先安装 Xcode Command Line Tools"
+  fi
+  CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH="$(resolve_path "$CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH")"
+  check_runtime_dependencies "$CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH"
+  echo "[xcframework] runtime dependency check passed: $CHECK_RUNTIME_DEPENDENCIES_ONLY_PATH"
+  exit 0
+fi
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
   die "未找到 xcodebuild，请先安装 Xcode Command Line Tools"
