@@ -136,7 +136,7 @@ struct XCFrameworkScriptTests {
         target="$2"
         cat <<EOF
         $target:
-            $target(_AtomicsShims.o) (compatibility version 0.0.0, current version 0.0.0)
+            $target(_AtomicsShims.o): (compatibility version 0.0.0, current version 0.0.0)
             /usr/lib/libobjc.A.dylib (compatibility version 1.0.0, current version 228.0.0)
         EOF
         """

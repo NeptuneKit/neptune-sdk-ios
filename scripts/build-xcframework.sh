@@ -204,7 +204,7 @@ check_runtime_dependencies() {
     local dependency
     while IFS= read -r dependency; do
       [[ -z "$dependency" ]] && continue
-      if [[ "$dependency" == "$binary_path"*"("*.o")" ]]; then
+      if [[ "$dependency" == "$binary_path"*"("*.o")" ]] || [[ "$dependency" == "$binary_path"*"("*.o"):" ]]; then
         continue
       fi
       # 静态产物经 otool -L 输出时会包含 "binary(member.o):" 之类条目，需跳过。
