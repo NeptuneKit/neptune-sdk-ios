@@ -70,5 +70,97 @@ struct UIKitViewTreeTypographyTests {
         #expect((style.borderRadius ?? 0) > 0)
         #expect(style.textAlign == "center")
     }
+
+    @Test("Collector captures node constraints from self and superview")
+    func collectorCapturesNodeConstraints() throws {
+        let container = UIView(frame: .init(x: 0, y: 0, width: 320, height: 180))
+        let child = UIView()
+        child.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(child)
+
+        NSLayoutConstraint.activate([
+            child.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            child.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            child.widthAnchor.constraint(equalToConstant: 100),
+            child.heightAnchor.constraint(equalToConstant: 44)
+        ])
+
+        let childId = NeptuneUIKitViewTreeCollector.buildIdentifier(for: child, fallbackSeed: "child")
+        let constraints = try #require(NeptuneUIKitViewTreeCollector.captureConstraints(of: child, viewId: childId))
+
+        #expect(constraints.isEmpty == false)
+        #expect(constraints.contains(where: { $0.source == "self" }))
+        #expect(constraints.contains(where: { $0.source == "superview" }))
+        #expect(constraints.contains(where: { $0.firstAttribute == "leading" || $0.secondAttribute == "leading" }))
+    }
+
+    @Test("Collector includes inactive constraints")
+    func collectorIncludesInactiveConstraints() throws {
+        let container = UIView(frame: .init(x: 0, y: 0, width: 320, height: 180))
+        let child = UIView()
+        child.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(child)
+
+        let active = child.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12)
+        let inactive = NSLayoutConstraint(
+            item: child,
+            attribute: .width,
+            relatedBy: .greaterThanOrEqual,
+            toItem: nil,
+            attribute: .notAnAttribute,
+            multiplier: 1,
+            constant: 90
+        )
+        child.addConstraint(inactive)
+        inactive.isActive = false
+        NSLayoutConstraint.activate([active])
+
+        let childId = NeptuneUIKitViewTreeCollector.buildIdentifier(for: child, fallbackSeed: "child")
+        let constraints = try #require(NeptuneUIKitViewTreeCollector.captureConstraints(of: child, viewId: childId))
+
+        #expect(constraints.contains(where: { $0.isActive == true }))
+        #expect(
+            constraints.contains(where: {
+                $0.isActive == false &&
+                    $0.firstAttribute == "width" &&
+                    $0.relation == "greaterThanOrEqual"
+            })
+        )
+    }
+
+    @Test("Collector captures CALayer nodes under view nodes")
+    func collectorCapturesLayerNodes() throws {
+        let label = UILabel(frame: .init(x: 12, y: 20, width: 200, height: 28))
+        label.text = "discover ok"
+
+        let markerLayer = CALayer()
+        markerLayer.frame = CGRect(x: 0, y: 0, width: 120, height: 20)
+        markerLayer.backgroundColor = UIColor.red.cgColor
+        label.layer.addSublayer(markerLayer)
+
+        let labelId = NeptuneUIKitViewTreeCollector.buildIdentifier(for: label, fallbackSeed: "label")
+        let layerNodes = NeptuneUIKitViewTreeCollector.captureLayerNodes(from: label.layer, parentNodeId: labelId)
+
+        #expect(layerNodes.isEmpty == false)
+        #expect(layerNodes.contains(where: { $0.name.contains("CALayer") }))
+        #expect(layerNodes.contains(where: { $0.parentId == labelId }))
+    }
+
+    @Test("Collector includes view-backed sublayers in full layer tree")
+    func collectorIncludesViewBackedSublayers() throws {
+        let container = UIView(frame: .init(x: 0, y: 0, width: 300, height: 200))
+        let child = UIView(frame: .init(x: 12, y: 16, width: 120, height: 40))
+        container.addSubview(child)
+
+        let containerId = NeptuneUIKitViewTreeCollector.buildIdentifier(for: container, fallbackSeed: "container")
+        let layerNodes = NeptuneUIKitViewTreeCollector.captureLayerNodes(from: container.layer, parentNodeId: containerId)
+
+        #expect(layerNodes.isEmpty == false)
+        let childLayerId = "0x\(String(UInt(bitPattern: Unmanaged.passUnretained(child.layer).toOpaque()), radix: 16))"
+        let hasChildBackingLayer = layerNodes.contains(where: { node in
+            node.children.contains(where: { $0.id == childLayerId })
+        })
+        #expect(hasChildBackingLayer == true)
+    }
 }
 #endif

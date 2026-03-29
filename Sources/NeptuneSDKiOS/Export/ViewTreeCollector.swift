@@ -164,11 +164,14 @@ public final class NeptuneUIKitViewTreeCollector: NeptuneViewTreeCollecting {
         let id = Self.buildIdentifier(for: view, fallbackSeed: fallbackSeed)
         let frame = Self.captureFrame(of: view)
         let style = Self.captureStyle(of: view)
+        let constraints = Self.captureConstraints(of: view, viewId: id)
         let text = Self.captureText(of: view)
         let visible = Self.isVisible(view)
-        let children = view.subviews.enumerated().map { index, child in
+        let viewChildren = view.subviews.enumerated().map { index, child in
             captureNode(from: child, parentId: id, fallbackSeed: "\(fallbackSeed)-\(index)")
         }
+        let layerChildren = Self.captureLayerNodes(from: view.layer, parentNodeId: id)
+        let children = viewChildren + layerChildren
         return NeptuneViewTreeCaptureNode(
             id: id,
             parentId: parentId,
@@ -176,9 +179,18 @@ public final class NeptuneUIKitViewTreeCollector: NeptuneViewTreeCollecting {
             className: String(describing: type(of: view)),
             frame: frame,
             style: style,
+            constraints: constraints,
             text: text,
             visible: visible,
-            rawAttributes: Self.captureRawAttributes(of: view, id: id, frame: frame, style: style, text: text, visible: visible),
+            rawAttributes: Self.captureRawAttributes(
+                of: view,
+                id: id,
+                frame: frame,
+                style: style,
+                constraints: constraints,
+                text: text,
+                visible: visible
+            ),
             children: children
         )
     }
@@ -198,6 +210,114 @@ public final class NeptuneUIKitViewTreeCollector: NeptuneViewTreeCollecting {
     static func buildIdentifier(for view: UIView, fallbackSeed _: String) -> String {
         let memoryAddress = String(UInt(bitPattern: Unmanaged.passUnretained(view).toOpaque()), radix: 16)
         return "0x\(memoryAddress)"
+    }
+
+    static func captureLayerNodes(
+        from layer: CALayer,
+        parentNodeId: String
+    ) -> [NeptuneViewTreeCaptureNode] {
+        guard let layerNode = captureLayerNode(
+            layer,
+            parentNodeId: parentNodeId
+        ) else {
+            return []
+        }
+        return [layerNode]
+    }
+
+    private static func captureLayerNode(
+        _ layer: CALayer,
+        parentNodeId: String
+    ) -> NeptuneViewTreeCaptureNode? {
+        let layerId = buildLayerIdentifier(for: layer)
+        let frame = captureFrame(of: layer)
+        let style = captureStyle(of: layer)
+        let text = captureText(of: layer)
+        let visible = isVisible(layer)
+
+        let children = (layer.sublayers ?? []).compactMap { child in
+            captureLayerNode(
+                child,
+                parentNodeId: layerId
+            )
+        }
+
+        return NeptuneViewTreeCaptureNode(
+            id: layerId,
+            parentId: parentNodeId,
+            name: String(describing: type(of: layer)),
+            className: String(describing: type(of: layer)),
+            frame: frame,
+            style: style,
+            constraints: nil,
+            text: text,
+            visible: visible,
+            rawAttributes: captureRawAttributes(of: layer, id: layerId, frame: frame, style: style, text: text, visible: visible),
+            children: children
+        )
+    }
+
+    private static func buildLayerIdentifier(for layer: CALayer) -> String {
+        let memoryAddress = String(UInt(bitPattern: Unmanaged.passUnretained(layer).toOpaque()), radix: 16)
+        return "0x\(memoryAddress)"
+    }
+
+    private static func captureFrame(of layer: CALayer) -> NeptuneViewTreeNode.Frame? {
+        let rect = layer.convert(layer.bounds, to: nil)
+        guard rect.origin.x.isFinite,
+              rect.origin.y.isFinite,
+              rect.size.width.isFinite,
+              rect.size.height.isFinite else {
+            return nil
+        }
+        return NeptuneViewTreeNode.Frame(
+            x: Double(rect.origin.x),
+            y: Double(rect.origin.y),
+            width: Double(rect.size.width),
+            height: Double(rect.size.height)
+        )
+    }
+
+    private static func captureStyle(of layer: CALayer) -> NeptuneViewTreeNode.Style? {
+        let backgroundColor = layer.backgroundColor.flatMap { Self.colorHexString(UIColor(cgColor: $0)) }
+        let borderColor = layer.borderColor.flatMap { Self.colorHexString(UIColor(cgColor: $0)) }
+        let style = NeptuneViewTreeNode.Style(
+            opacity: Double(layer.opacity),
+            backgroundColor: backgroundColor,
+            borderRadius: Double(layer.cornerRadius),
+            borderWidth: Double(layer.borderWidth),
+            borderColor: borderColor,
+            zIndex: Double(layer.zPosition)
+        )
+        if style.opacity == nil &&
+            style.backgroundColor == nil &&
+            style.borderRadius == nil &&
+            style.borderWidth == nil &&
+            style.borderColor == nil &&
+            style.zIndex == nil {
+            return nil
+        }
+        return style
+    }
+
+    private static func captureText(of layer: CALayer) -> String? {
+        if let textLayer = layer as? CATextLayer {
+            if let text = textLayer.string as? String {
+                return normalizeNeptuneViewTreeText(text)
+            }
+            if let attributed = textLayer.string as? NSAttributedString {
+                return normalizeNeptuneViewTreeText(attributed.string)
+            }
+        }
+        return nil
+    }
+
+    private static func isVisible(_ layer: CALayer) -> Bool {
+        guard !layer.isHidden, layer.opacity > 0 else {
+            return false
+        }
+        let frame = layer.convert(layer.bounds, to: nil)
+        return frame.width > 0 && frame.height > 0
     }
 
     private static func captureFrame(of view: UIView) -> NeptuneViewTreeNode.Frame? {
@@ -290,6 +410,7 @@ public final class NeptuneUIKitViewTreeCollector: NeptuneViewTreeCollecting {
         id: String,
         frame: NeptuneViewTreeNode.Frame?,
         style: NeptuneViewTreeNode.Style?,
+        constraints: [NeptuneViewTreeNode.Constraint]?,
         text: String?,
         visible: Bool
     ) -> [String: InspectorPayloadValue] {
@@ -321,6 +442,9 @@ public final class NeptuneUIKitViewTreeCollector: NeptuneViewTreeCollecting {
         if let style {
             attributes["style"] = .object(makeNeptuneInspectorStyleAttributes(from: style))
         }
+        if let constraints {
+            attributes["constraints"] = .array(constraints.map(makeNeptuneInspectorConstraintPayload(from:)))
+        }
         if let text {
             attributes["text"] = .string(text)
         }
@@ -329,6 +453,173 @@ public final class NeptuneUIKitViewTreeCollector: NeptuneViewTreeCollecting {
             attributes["isKeyWindow"] = .bool(window.isKeyWindow)
         }
         return attributes
+    }
+
+    private static func captureRawAttributes(
+        of layer: CALayer,
+        id: String,
+        frame: NeptuneViewTreeNode.Frame?,
+        style: NeptuneViewTreeNode.Style?,
+        text: String?,
+        visible: Bool
+    ) -> [String: InspectorPayloadValue] {
+        var attributes: [String: InspectorPayloadValue] = [
+            "id": .string(id),
+            "className": .string(String(describing: type(of: layer))),
+            "name": .string(String(describing: type(of: layer))),
+            "hidden": .bool(layer.isHidden),
+            "alpha": .number(Double(layer.opacity)),
+            "visible": .bool(visible),
+            "children": .array([])
+        ]
+
+        if let frame {
+            attributes["frame"] = .object([
+                "x": .number(frame.x),
+                "y": .number(frame.y),
+                "width": .number(frame.width),
+                "height": .number(frame.height)
+            ])
+        }
+        if let style {
+            attributes["style"] = .object(makeNeptuneInspectorStyleAttributes(from: style))
+        }
+        if let text {
+            attributes["text"] = .string(text)
+        }
+        return attributes
+    }
+
+    static func captureConstraints(of view: UIView, viewId: String) -> [NeptuneViewTreeNode.Constraint]? {
+        var captured: [NeptuneViewTreeNode.Constraint] = []
+        var seenConstraintIDs = Set<ObjectIdentifier>()
+
+        for constraint in view.constraints {
+            let objectID = ObjectIdentifier(constraint)
+            guard seenConstraintIDs.insert(objectID).inserted else { continue }
+            captured.append(makeConstraint(constraint, source: "self", view: view, viewId: viewId))
+        }
+
+        var ancestor = view.superview
+        var depth = 1
+        while let current = ancestor {
+            for constraint in current.constraints where constraintInvolvesView(constraint, view: view) {
+                let objectID = ObjectIdentifier(constraint)
+                guard seenConstraintIDs.insert(objectID).inserted else { continue }
+                let source = depth == 1 ? "superview" : "ancestor-\(depth)"
+                captured.append(makeConstraint(constraint, source: source, view: view, viewId: viewId))
+            }
+            ancestor = current.superview
+            depth += 1
+        }
+
+        return captured.isEmpty ? nil : captured
+    }
+
+    private static func constraintInvolvesView(_ constraint: NSLayoutConstraint, view: UIView) -> Bool {
+        let firstItem = constraint.firstItem as AnyObject?
+        let secondItem = constraint.secondItem as AnyObject?
+        return firstItem === view || secondItem === view
+    }
+
+    private static func makeConstraint(
+        _ constraint: NSLayoutConstraint,
+        source: String,
+        view: UIView,
+        viewId: String
+    ) -> NeptuneViewTreeNode.Constraint {
+        let pointer = String(UInt(bitPattern: Unmanaged.passUnretained(constraint).toOpaque()), radix: 16)
+        return NeptuneViewTreeNode.Constraint(
+            id: "0x\(pointer)",
+            source: source,
+            relation: relationString(constraint.relation),
+            firstAttribute: attributeString(constraint.firstAttribute),
+            secondAttribute: constraint.secondItem == nil ? nil : attributeString(constraint.secondAttribute),
+            firstItem: constraintItemString(constraint.firstItem, ownerView: view, ownerViewId: viewId),
+            secondItem: constraintItemString(constraint.secondItem, ownerView: view, ownerViewId: viewId),
+            constant: Double(constraint.constant),
+            multiplier: Double(constraint.multiplier),
+            priority: Double(constraint.priority.rawValue),
+            isActive: constraint.isActive
+        )
+    }
+
+    private static func relationString(_ relation: NSLayoutConstraint.Relation) -> String {
+        switch relation {
+        case .equal:
+            return "equal"
+        case .lessThanOrEqual:
+            return "lessThanOrEqual"
+        case .greaterThanOrEqual:
+            return "greaterThanOrEqual"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private static func attributeString(_ attribute: NSLayoutConstraint.Attribute) -> String {
+        switch attribute {
+        case .left:
+            return "left"
+        case .right:
+            return "right"
+        case .top:
+            return "top"
+        case .bottom:
+            return "bottom"
+        case .leading:
+            return "leading"
+        case .trailing:
+            return "trailing"
+        case .width:
+            return "width"
+        case .height:
+            return "height"
+        case .centerX:
+            return "centerX"
+        case .centerY:
+            return "centerY"
+        case .lastBaseline:
+            return "lastBaseline"
+        case .firstBaseline:
+            return "firstBaseline"
+        case .leftMargin:
+            return "leftMargin"
+        case .rightMargin:
+            return "rightMargin"
+        case .topMargin:
+            return "topMargin"
+        case .bottomMargin:
+            return "bottomMargin"
+        case .leadingMargin:
+            return "leadingMargin"
+        case .trailingMargin:
+            return "trailingMargin"
+        case .centerXWithinMargins:
+            return "centerXWithinMargins"
+        case .centerYWithinMargins:
+            return "centerYWithinMargins"
+        case .notAnAttribute:
+            return "notAnAttribute"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private static func constraintItemString(_ item: AnyObject?, ownerView: UIView, ownerViewId: String) -> String? {
+        guard let item else { return nil }
+        if let itemView = item as? UIView {
+            if itemView === ownerView {
+                return ownerViewId
+            }
+            return buildIdentifier(for: itemView, fallbackSeed: "constraint-item")
+        }
+        if let itemGuide = item as? UILayoutGuide {
+            let pointer = String(UInt(bitPattern: Unmanaged.passUnretained(itemGuide).toOpaque()), radix: 16)
+            return "\(String(describing: type(of: itemGuide)))@0x\(pointer)"
+        }
+        let pointer = String(UInt(bitPattern: Unmanaged.passUnretained(item).toOpaque()), radix: 16)
+        return "\(String(describing: type(of: item)))@0x\(pointer)"
     }
 
     private static func resolveTextColor(from view: UIView) -> UIColor? {
@@ -637,6 +928,7 @@ struct NeptuneViewTreeCaptureNode {
     let className: String
     let frame: NeptuneViewTreeNode.Frame?
     let style: NeptuneViewTreeNode.Style?
+    let constraints: [NeptuneViewTreeNode.Constraint]?
     let text: String?
     let visible: Bool?
     let rawAttributes: [String: InspectorPayloadValue]
@@ -649,6 +941,7 @@ struct NeptuneViewTreeCaptureNode {
             name: name,
             frame: frame,
             style: style,
+            constraints: constraints,
             text: text,
             visible: visible,
             children: children.map(\.viewTreeNode)
@@ -677,6 +970,9 @@ struct NeptuneViewTreeCaptureNode {
         if let style {
             payload["style"] = .object(makeNeptuneInspectorStyleAttributes(from: style))
         }
+        if let constraints {
+            payload["constraints"] = .array(constraints.map(makeNeptuneInspectorConstraintPayload(from:)))
+        }
         if let text {
             payload["text"] = .string(text)
         } else {
@@ -689,4 +985,34 @@ struct NeptuneViewTreeCaptureNode {
         }
         return .object(payload)
     }
+}
+
+private func makeNeptuneInspectorConstraintPayload(from constraint: NeptuneViewTreeNode.Constraint) -> InspectorPayloadValue {
+    var attributes: [String: InspectorPayloadValue] = [
+        "id": .string(constraint.id),
+        "source": .string(constraint.source),
+        "relation": .string(constraint.relation),
+        "firstAttribute": .string(constraint.firstAttribute),
+        "constant": .number(constraint.constant),
+        "multiplier": .number(constraint.multiplier),
+        "priority": .number(constraint.priority),
+        "isActive": .bool(constraint.isActive)
+    ]
+
+    if let secondAttribute = constraint.secondAttribute {
+        attributes["secondAttribute"] = .string(secondAttribute)
+    } else {
+        attributes["secondAttribute"] = .null
+    }
+    if let firstItem = constraint.firstItem {
+        attributes["firstItem"] = .string(firstItem)
+    } else {
+        attributes["firstItem"] = .null
+    }
+    if let secondItem = constraint.secondItem {
+        attributes["secondItem"] = .string(secondItem)
+    } else {
+        attributes["secondItem"] = .null
+    }
+    return .object(attributes)
 }

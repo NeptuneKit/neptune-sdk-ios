@@ -203,11 +203,52 @@ public struct NeptuneViewTreeNode: Codable, Sendable, Equatable {
         }
     }
 
+    public struct Constraint: Codable, Sendable, Equatable {
+        public var id: String
+        public var source: String
+        public var relation: String
+        public var firstAttribute: String
+        public var secondAttribute: String?
+        public var firstItem: String?
+        public var secondItem: String?
+        public var constant: Double
+        public var multiplier: Double
+        public var priority: Double
+        public var isActive: Bool
+
+        public init(
+            id: String,
+            source: String,
+            relation: String,
+            firstAttribute: String,
+            secondAttribute: String? = nil,
+            firstItem: String? = nil,
+            secondItem: String? = nil,
+            constant: Double,
+            multiplier: Double,
+            priority: Double,
+            isActive: Bool
+        ) {
+            self.id = id
+            self.source = source
+            self.relation = relation
+            self.firstAttribute = firstAttribute
+            self.secondAttribute = secondAttribute
+            self.firstItem = firstItem
+            self.secondItem = secondItem
+            self.constant = constant
+            self.multiplier = multiplier
+            self.priority = priority
+            self.isActive = isActive
+        }
+    }
+
     public var id: String
     public var parentId: String?
     public var name: String
     public var frame: Frame?
     public var style: Style?
+    public var constraints: [Constraint]?
     public var text: String?
     public var visible: Bool?
     public var children: [NeptuneViewTreeNode]
@@ -218,6 +259,7 @@ public struct NeptuneViewTreeNode: Codable, Sendable, Equatable {
         name: String,
         frame: Frame? = nil,
         style: Style? = nil,
+        constraints: [Constraint]? = nil,
         text: String? = nil,
         visible: Bool? = nil,
         children: [NeptuneViewTreeNode]
@@ -227,6 +269,7 @@ public struct NeptuneViewTreeNode: Codable, Sendable, Equatable {
         self.name = name
         self.frame = frame
         self.style = style
+        self.constraints = constraints
         self.text = text
         self.visible = visible
         self.children = children
