@@ -4,6 +4,24 @@ import Testing
 
 @Suite("NeptuneSDKiOS Smoke Demo")
 struct SmokeDemoRunnerTests {
+    @Test("Smoke demo creates temporary sqlite directory when missing")
+    func smokeDemoCreatesTemporaryDirectory() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NeptuneSDKiOSSmokeDemo", isDirectory: true)
+        if FileManager.default.fileExists(atPath: tempRoot.path) {
+            // Some CI/local environments can leave restricted temp entries.
+            // Cleanup is best-effort; the test still validates runner behavior.
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        let runner = NeptuneSmokeDemoRunner(
+            configuration: .init(capacity: 4, ingestCount: 2, pageLimit: 10, keepDatabase: false)
+        )
+
+        let summary = try await runner.run()
+        #expect(summary.health.ok)
+    }
+
     @Test("Smoke demo exercises ingest, HTTP export, and SQLite persistence")
     func smokeDemoProducesExpectedSummary() async throws {
         let runner = NeptuneSmokeDemoRunner(

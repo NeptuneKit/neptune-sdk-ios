@@ -132,3 +132,209 @@ public struct NeptuneMetricsSnapshot: Codable, Sendable, Equatable {
         self.newestRecordId = newestRecordId
     }
 }
+
+public struct NeptuneViewTreeNode: Codable, Sendable, Equatable {
+    public struct Frame: Codable, Sendable, Equatable {
+        public var x: Double
+        public var y: Double
+        public var width: Double
+        public var height: Double
+
+        public init(x: Double, y: Double, width: Double, height: Double) {
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+        }
+    }
+
+    public struct Style: Codable, Sendable, Equatable {
+        public var typographyUnit: String?
+        public var sourceTypographyUnit: String?
+        public var platformFontScale: Double?
+        public var opacity: Double?
+        public var backgroundColor: String?
+        public var textColor: String?
+        public var fontSize: Double?
+        public var lineHeight: Double?
+        public var letterSpacing: Double?
+        public var fontWeight: String?
+        public var fontWeightRaw: String?
+        public var borderRadius: Double?
+        public var borderWidth: Double?
+        public var borderColor: String?
+        public var zIndex: Double?
+        public var textAlign: String?
+
+        public init(
+            typographyUnit: String? = nil,
+            sourceTypographyUnit: String? = nil,
+            platformFontScale: Double? = nil,
+            opacity: Double? = nil,
+            backgroundColor: String? = nil,
+            textColor: String? = nil,
+            fontSize: Double? = nil,
+            lineHeight: Double? = nil,
+            letterSpacing: Double? = nil,
+            fontWeight: String? = nil,
+            fontWeightRaw: String? = nil,
+            borderRadius: Double? = nil,
+            borderWidth: Double? = nil,
+            borderColor: String? = nil,
+            zIndex: Double? = nil,
+            textAlign: String? = nil
+        ) {
+            self.typographyUnit = typographyUnit
+            self.sourceTypographyUnit = sourceTypographyUnit
+            self.platformFontScale = platformFontScale
+            self.opacity = opacity
+            self.backgroundColor = backgroundColor
+            self.textColor = textColor
+            self.fontSize = fontSize
+            self.lineHeight = lineHeight
+            self.letterSpacing = letterSpacing
+            self.fontWeight = fontWeight
+            self.fontWeightRaw = fontWeightRaw
+            self.borderRadius = borderRadius
+            self.borderWidth = borderWidth
+            self.borderColor = borderColor
+            self.zIndex = zIndex
+            self.textAlign = textAlign
+        }
+    }
+
+    public var id: String
+    public var parentId: String?
+    public var name: String
+    public var frame: Frame?
+    public var style: Style?
+    public var text: String?
+    public var visible: Bool?
+    public var children: [NeptuneViewTreeNode]
+
+    public init(
+        id: String,
+        parentId: String?,
+        name: String,
+        frame: Frame? = nil,
+        style: Style? = nil,
+        text: String? = nil,
+        visible: Bool? = nil,
+        children: [NeptuneViewTreeNode]
+    ) {
+        self.id = id
+        self.parentId = parentId
+        self.name = name
+        self.frame = frame
+        self.style = style
+        self.text = text
+        self.visible = visible
+        self.children = children
+    }
+}
+
+public struct NeptuneViewTreeSnapshot: Codable, Sendable, Equatable {
+    public var snapshotId: String
+    public var capturedAt: String
+    public var platform: String
+    public var roots: [NeptuneViewTreeNode]
+
+    public init(snapshotId: String, capturedAt: String, platform: String, roots: [NeptuneViewTreeNode]) {
+        self.snapshotId = snapshotId
+        self.capturedAt = capturedAt
+        self.platform = platform
+        self.roots = roots
+    }
+}
+
+public enum InspectorPayloadValue: Codable, Sendable, Equatable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+    case array([InspectorPayloadValue])
+    case object([String: InspectorPayloadValue])
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if container.decodeNil() {
+            self = .null
+            return
+        }
+
+        if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+            return
+        }
+
+        if let value = try? container.decode(Double.self) {
+            self = .number(value)
+            return
+        }
+
+        if let value = try? container.decode(String.self) {
+            self = .string(value)
+            return
+        }
+
+        if let value = try? container.decode([InspectorPayloadValue].self) {
+            self = .array(value)
+            return
+        }
+
+        if let value = try? container.decode([String: InspectorPayloadValue].self) {
+            self = .object(value)
+            return
+        }
+
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Unsupported JSON payload value."
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .number(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        case .array(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        }
+    }
+}
+
+public struct InspectorSnapshot: Codable, Sendable, Equatable {
+    public var snapshotId: String
+    public var capturedAt: String
+    public var platform: String
+    public var available: Bool
+    public var payload: InspectorPayloadValue?
+    public var reason: String?
+
+    public init(
+        snapshotId: String,
+        capturedAt: String,
+        platform: String,
+        available: Bool,
+        payload: InspectorPayloadValue?,
+        reason: String? = nil
+    ) {
+        self.snapshotId = snapshotId
+        self.capturedAt = capturedAt
+        self.platform = platform
+        self.available = available
+        self.payload = payload
+        self.reason = reason
+    }
+}

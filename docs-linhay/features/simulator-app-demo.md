@@ -18,8 +18,9 @@
 
 1. 存在独立 Demo 工程目录 `Examples/simulator-app`
 2. 可通过 `scripts/simulator-demo.sh` 一键完成：生成工程、编译、安装、启动
-3. App UI 至少提供四个动作：写日志、看指标、启动导出服务、发现网关
+3. App UI 采用统一三按钮模型：`写入日志批次`、`发现并上报`、`刷新快照`
 4. App 启动后自动触发 `discover -> POST /v2/clients:register`，并在日志区输出可定位的成功/失败关键字
 5. `Discover Gateway` 成功后自动向 CLI 网关发送一条 `POST /v2/logs:ingest` 的 JSON 日志，并在 UI 输出 `gateway ingest success` 或 `gateway ingest failure`
 6. 导出路由保持 `/v2/export/health`、`/v2/export/metrics`、`/v2/logs`
 7. 不影响现有 `swift test` 与 `smoke-demo.sh` 链路
+8. 首页提供一个可进入的复杂二级页入口，二级页本身使用多卡片、多层级 UIKit 视图结构，便于视图树采集与还原验证

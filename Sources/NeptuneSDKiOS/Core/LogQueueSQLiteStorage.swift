@@ -108,9 +108,10 @@ final class NeptuneSQLiteLogQueueStorage: NeptuneLogQueueBackingStore {
                     request = request.filter(Column(NeptuneSQLiteLogQueueSchema.RecordColumn.id) > cursor)
                 }
 
-                let records = try request.limit(safeLimit + 1).fetchAll(db).map(\.model)
-                let hasMore = records.count > safeLimit
-                let pageRecords = Array(records.prefix(safeLimit))
+                let fetchLimit = safeLimit == .max ? safeLimit : safeLimit + 1
+                let records = try request.limit(fetchLimit).fetchAll(db).map(\.model)
+                let hasMore = safeLimit == .max ? false : records.count > safeLimit
+                let pageRecords = safeLimit == .max ? records : Array(records.prefix(safeLimit))
                 return NeptuneLogsPage(
                     records: pageRecords,
                     nextCursor: pageRecords.last?.id,

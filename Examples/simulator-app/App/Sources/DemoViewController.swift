@@ -11,6 +11,7 @@ protocol DemoRuntimeManaging: Sendable {
     func startServerIfNeeded() async throws -> UInt16
     func discoverGateway() async throws -> NeptuneGatewayDiscoveryResult
     func ingestGatewayLog(after discovery: NeptuneGatewayDiscoveryResult) async throws
+    func ingestGatewayRawViewTree(after discovery: NeptuneGatewayDiscoveryResult) async throws
     func startGatewayRegistration(log: @escaping @Sendable (String) -> Void) async
 }
 
@@ -71,6 +72,23 @@ private actor DemoRuntime: DemoRuntimeManaging {
     func ingestGatewayLog(after discovery: NeptuneGatewayDiscoveryResult) async throws {
         try await NeptuneGatewayIngestClient.send(
             Self.makeGatewayIngestRecord(discovery: discovery),
+            to: discovery.endpoint
+        )
+    }
+
+    func ingestGatewayRawViewTree(after discovery: NeptuneGatewayDiscoveryResult) async throws {
+        let collector = NeptuneUIKitViewTreeCollectorBridge()
+        let inspectorSnapshot = await collector.captureInspectorSnapshot(platform: "ios")
+        guard inspectorSnapshot.available, inspectorSnapshot.payload != nil else {
+            throw DemoRuntimeError.inspectorUnavailable
+        }
+
+        try await NeptuneGatewayIngestClient.sendRawViewTree(
+            platform: "ios",
+            appId: "com.neptunekit.demo.ios",
+            sessionId: "simulator-session",
+            deviceId: await Self.defaultDeviceID(),
+            snapshot: inspectorSnapshot,
             to: discovery.endpoint
         )
     }
@@ -149,6 +167,17 @@ private actor DemoRuntime: DemoRuntimeManaging {
     @MainActor
     private static func defaultDeviceID() -> String {
         UIDevice.current.identifierForVendor?.uuidString ?? "simulator"
+    }
+}
+
+private enum DemoRuntimeError: LocalizedError {
+    case inspectorUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .inspectorUnavailable:
+            return "inspector payload unavailable"
+        }
     }
 }
 
@@ -244,17 +273,38 @@ enum DemoGatewayIngestOutputFormatter {
     }
 }
 
+enum DemoGatewayViewTreeIngestOutputFormatter {
+    static func success(endpoint: URL) -> String {
+        "gateway ui-tree raw ingest success: endpoint=\(endpoint.absoluteString)"
+    }
+
+    static func failure(_ error: Error) -> String {
+        "gateway ui-tree raw ingest failure: \(error.localizedDescription)"
+    }
+}
+
 @MainActor
 final class DemoViewController: UIViewController {
+    static let actionButtonTitles: [String] = ["写入日志批次", "发现并上报", "刷新快照"]
+
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+    private let bannerLabel = UILabel()
+    private let batchLabel = UILabel()
+    private let discoverySummaryLabel = UILabel()
+    private let ingestSummaryLabel = UILabel()
+    private let metricsLabel = UILabel()
+    private let sourcesLabel = UILabel()
     private let outputView = UITextView()
     private let ingestButton = UIButton(type: .system)
-    private let metricsButton = UIButton(type: .system)
-    private let serverButton = UIButton(type: .system)
+    private let snapshotButton = UIButton(type: .system)
     private let discoveryButton = UIButton(type: .system)
+    private let deepDiveButton = UIButton(type: .system)
 
     private let runtime: (any DemoRuntimeManaging)?
     private let runtimeError: String?
     private var didTriggerAutoGatewayRegistration = false
+    private var batchCount = 0
 
     init(
         runtime: (any DemoRuntimeManaging)? = nil,
@@ -283,12 +333,13 @@ final class DemoViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = UIColor(red: 0.024, green: 0.063, blue: 0.102, alpha: 1)
         setupViews()
         appendLine("Simulator demo ready")
         if let runtimeError {
             appendLine(runtimeError)
         }
+        Task { await refreshSnapshotDashboard() }
         triggerAutoGatewayRegistrationIfNeeded()
     }
 
@@ -298,90 +349,226 @@ final class DemoViewController: UIViewController {
     }
 
     private func setupViews() {
-        ingestButton.setTitle("Ingest 1 Log", for: .normal)
-        metricsButton.setTitle("Show Metrics", for: .normal)
-        serverButton.setTitle("Start Export Server", for: .normal)
-        discoveryButton.setTitle("Discover Gateway", for: .normal)
+        ingestButton.setTitle(Self.actionButtonTitles[0], for: .normal)
+        discoveryButton.setTitle(Self.actionButtonTitles[1], for: .normal)
+        snapshotButton.setTitle(Self.actionButtonTitles[2], for: .normal)
+        deepDiveButton.setTitle("进入复杂二级页", for: .normal)
 
         ingestButton.addTarget(self, action: #selector(onIngestTap), for: .touchUpInside)
-        metricsButton.addTarget(self, action: #selector(onMetricsTap), for: .touchUpInside)
-        serverButton.addTarget(self, action: #selector(onServerTap), for: .touchUpInside)
+        snapshotButton.addTarget(self, action: #selector(onSnapshotTap), for: .touchUpInside)
         discoveryButton.addTarget(self, action: #selector(onDiscoveryTap), for: .touchUpInside)
+        deepDiveButton.addTarget(self, action: #selector(onDeepDiveTap), for: .touchUpInside)
 
-        let controls = UIStackView(arrangedSubviews: [ingestButton, metricsButton, serverButton, discoveryButton])
+        contentStack.axis = .vertical
+        contentStack.spacing = 16
+        outputView.isEditable = false
+        outputView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        outputView.backgroundColor = .clear
+        outputView.textColor = UIColor(red: 0.97, green: 0.98, blue: 1, alpha: 0.92)
+
+        let heroCard = makeCard()
+        let heroTitle = makeLabel(text: "Neptune SDK iOS Demo", size: 28, weight: .bold)
+        heroTitle.numberOfLines = 2
+        let heroSubtitle = makeLabel(
+            text: "点击下方按钮，把日志写入 Runtime，并同步观察 gateway discovery、metrics 与 recent logs。",
+            size: 14,
+            weight: .regular,
+            color: UIColor(red: 0.62, green: 0.70, blue: 0.78, alpha: 1)
+        )
+        heroSubtitle.numberOfLines = 0
+
+        bannerLabel.text = "ready"
+        batchLabel.text = "batch #0"
+        styleChip(bannerLabel, background: UIColor(red: 0.14, green: 0.29, blue: 0.42, alpha: 1), textColor: .white)
+        styleChip(batchLabel, background: UIColor(white: 1, alpha: 0.12), textColor: UIColor(red: 0.78, green: 0.83, blue: 0.90, alpha: 1))
+
+        let chipRow = UIStackView(arrangedSubviews: [bannerLabel, batchLabel])
+        chipRow.axis = .horizontal
+        chipRow.spacing = 8
+
+        let heroContent = UIStackView(arrangedSubviews: [heroTitle, heroSubtitle, chipRow])
+        heroContent.axis = .vertical
+        heroContent.spacing = 10
+        heroCard.addSubview(heroContent)
+        heroContent.translatesAutoresizingMaskIntoConstraints = false
+
+        let discoveryCard = makeCard()
+        let discoveryTitle = makeLabel(text: "Gateway Discovery", size: 18, weight: .bold)
+        discoverySummaryLabel.text = "status=not-run"
+        ingestSummaryLabel.text = "ingest status=not-run"
+        [discoverySummaryLabel, ingestSummaryLabel].forEach {
+            $0.numberOfLines = 0
+            $0.font = .systemFont(ofSize: 13, weight: .regular)
+            $0.textColor = UIColor(red: 0.66, green: 0.75, blue: 0.85, alpha: 1)
+        }
+        let discoveryContent = UIStackView(arrangedSubviews: [discoveryTitle, discoverySummaryLabel, ingestSummaryLabel])
+        discoveryContent.axis = .vertical
+        discoveryContent.spacing = 8
+        discoveryCard.addSubview(discoveryContent)
+        discoveryContent.translatesAutoresizingMaskIntoConstraints = false
+
+        [ingestButton, discoveryButton, snapshotButton].forEach(stylePrimaryButton(_:))
+        let controls = UIStackView(arrangedSubviews: [ingestButton, discoveryButton, snapshotButton])
         controls.axis = .vertical
         controls.spacing = 12
 
-        outputView.isEditable = false
-        outputView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        let deepDiveCard = makeCard()
+        let deepDiveTitle = makeLabel(text: "Neptune Deep Dive", size: 18, weight: .bold)
+        let deepDiveSubtitle = makeLabel(
+            text: "复杂二级页包含标签切换、指标矩阵、时间轴和诊断卡片，用于验证真实视图树采集。",
+            size: 13,
+            weight: .regular,
+            color: UIColor(red: 0.66, green: 0.75, blue: 0.85, alpha: 1)
+        )
+        deepDiveSubtitle.numberOfLines = 0
+        let deepDiveContent = UIStackView(arrangedSubviews: [deepDiveTitle, deepDiveSubtitle, deepDiveButton])
+        deepDiveContent.axis = .vertical
+        deepDiveContent.spacing = 10
+        deepDiveCard.addSubview(deepDiveContent)
+        deepDiveContent.translatesAutoresizingMaskIntoConstraints = false
+        deepDiveButton.configuration = .filled()
+        deepDiveButton.configuration?.baseBackgroundColor = UIColor(red: 0.46, green: 0.83, blue: 0.97, alpha: 1)
+        deepDiveButton.configuration?.baseForegroundColor = UIColor(red: 0.02, green: 0.07, blue: 0.11, alpha: 1)
+        deepDiveButton.configuration?.cornerStyle = .capsule
+        deepDiveButton.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+        deepDiveButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .bold)
 
-        let stack = UIStackView(arrangedSubviews: [controls, outputView])
-        stack.axis = .vertical
-        stack.spacing = 16
+        let metricsCard = makeCard()
+        let metricsTitle = makeLabel(text: "Metrics", size: 18, weight: .bold)
+        metricsLabel.numberOfLines = 0
+        metricsLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        metricsLabel.textColor = UIColor(red: 0.66, green: 0.75, blue: 0.85, alpha: 1)
+        let metricsContent = UIStackView(arrangedSubviews: [metricsTitle, metricsLabel])
+        metricsContent.axis = .vertical
+        metricsContent.spacing = 10
+        metricsCard.addSubview(metricsContent)
+        metricsContent.translatesAutoresizingMaskIntoConstraints = false
 
-        view.addSubview(stack)
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        let sourcesCard = makeCard()
+        let sourcesTitle = makeLabel(text: "Sources", size: 18, weight: .bold)
+        sourcesLabel.numberOfLines = 0
+        sourcesLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        sourcesLabel.textColor = UIColor(red: 0.66, green: 0.75, blue: 0.85, alpha: 1)
+        sourcesLabel.text = "no source yet"
+        let sourcesContent = UIStackView(arrangedSubviews: [sourcesTitle, sourcesLabel])
+        sourcesContent.axis = .vertical
+        sourcesContent.spacing = 10
+        sourcesCard.addSubview(sourcesContent)
+        sourcesContent.translatesAutoresizingMaskIntoConstraints = false
+
+        let logsCard = makeCard()
+        let logsTitle = makeLabel(text: "Recent logs", size: 18, weight: .bold)
+        let logsContent = UIStackView(arrangedSubviews: [logsTitle, outputView])
+        logsContent.axis = .vertical
+        logsContent.spacing = 10
+        logsCard.addSubview(logsContent)
+        logsContent.translatesAutoresizingMaskIntoConstraints = false
+
+        [heroCard, discoveryCard, controls, deepDiveCard, metricsCard, sourcesCard, logsCard].forEach(contentStack.addArrangedSubview(_:))
+
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentStack)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 20),
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor, constant: 20),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor, constant: -20),
+            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -24),
+
+            heroContent.topAnchor.constraint(equalTo: heroCard.topAnchor, constant: 20),
+            heroContent.leadingAnchor.constraint(equalTo: heroCard.leadingAnchor, constant: 20),
+            heroContent.trailingAnchor.constraint(equalTo: heroCard.trailingAnchor, constant: -20),
+            heroContent.bottomAnchor.constraint(equalTo: heroCard.bottomAnchor, constant: -20),
+            bannerLabel.heightAnchor.constraint(equalToConstant: 28),
+            batchLabel.heightAnchor.constraint(equalToConstant: 28),
+            bannerLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 68),
+            batchLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 84),
+
+            discoveryContent.topAnchor.constraint(equalTo: discoveryCard.topAnchor, constant: 20),
+            discoveryContent.leadingAnchor.constraint(equalTo: discoveryCard.leadingAnchor, constant: 20),
+            discoveryContent.trailingAnchor.constraint(equalTo: discoveryCard.trailingAnchor, constant: -20),
+            discoveryContent.bottomAnchor.constraint(equalTo: discoveryCard.bottomAnchor, constant: -20),
+
+            deepDiveContent.topAnchor.constraint(equalTo: deepDiveCard.topAnchor, constant: 20),
+            deepDiveContent.leadingAnchor.constraint(equalTo: deepDiveCard.leadingAnchor, constant: 20),
+            deepDiveContent.trailingAnchor.constraint(equalTo: deepDiveCard.trailingAnchor, constant: -20),
+            deepDiveContent.bottomAnchor.constraint(equalTo: deepDiveCard.bottomAnchor, constant: -20),
+
+            metricsContent.topAnchor.constraint(equalTo: metricsCard.topAnchor, constant: 20),
+            metricsContent.leadingAnchor.constraint(equalTo: metricsCard.leadingAnchor, constant: 20),
+            metricsContent.trailingAnchor.constraint(equalTo: metricsCard.trailingAnchor, constant: -20),
+            metricsContent.bottomAnchor.constraint(equalTo: metricsCard.bottomAnchor, constant: -20),
+
+            sourcesContent.topAnchor.constraint(equalTo: sourcesCard.topAnchor, constant: 20),
+            sourcesContent.leadingAnchor.constraint(equalTo: sourcesCard.leadingAnchor, constant: 20),
+            sourcesContent.trailingAnchor.constraint(equalTo: sourcesCard.trailingAnchor, constant: -20),
+            sourcesContent.bottomAnchor.constraint(equalTo: sourcesCard.bottomAnchor, constant: -20),
+
+            logsContent.topAnchor.constraint(equalTo: logsCard.topAnchor, constant: 20),
+            logsContent.leadingAnchor.constraint(equalTo: logsCard.leadingAnchor, constant: 20),
+            logsContent.trailingAnchor.constraint(equalTo: logsCard.trailingAnchor, constant: -20),
+            logsContent.bottomAnchor.constraint(equalTo: logsCard.bottomAnchor, constant: -20),
+            outputView.heightAnchor.constraint(greaterThanOrEqualToConstant: 180)
         ])
     }
 
     @objc private func onIngestTap() {
         guard let runtime else { return }
         Task {
-            let record = await runtime.ingestOne()
+            let records = [
+                await runtime.ingestOne(),
+                await runtime.ingestOne(),
+                await runtime.ingestOne()
+            ]
+            self.batchCount += 1
+            let ids = records.map(\.id).map(String.init).joined(separator: ",")
             await MainActor.run {
-                self.appendLine("ingest id=\(record.id) level=\(record.level.rawValue) msg=\(record.message)")
+                self.appendLine("write batch size=3 ids=[\(ids)]")
             }
+            await refreshSnapshotDashboard()
         }
     }
 
-    @objc private func onMetricsTap() {
-        guard let runtime else { return }
+    @objc private func onSnapshotTap() {
+        guard runtime != nil else { return }
         Task {
-            let (metrics, page) = await runtime.snapshot()
-            let ids = page.records.map(\.id).map(String.init).joined(separator: ",")
-            await MainActor.run {
-                self.appendLine("metrics total=\(metrics.totalRecords) dropped=\(metrics.droppedOverflow) latest=\(metrics.newestRecordId.map(String.init) ?? "nil")")
-                self.appendLine("logs count=\(page.records.count) ids=[\(ids)]")
-            }
-        }
-    }
-
-    @objc private func onServerTap() {
-        guard let runtime else { return }
-        Task {
-            do {
-                let port = try await runtime.startServerIfNeeded()
-                await MainActor.run {
-                    self.appendLine("server listening at http://127.0.0.1:\(port)/v2/export/health")
-                }
-            } catch {
-                await MainActor.run {
-                    self.appendLine("server start failed: \(error.localizedDescription)")
-                }
-            }
+            await refreshSnapshotDashboard(appendSummary: true)
         }
     }
 
     @objc private func onDiscoveryTap() {
-        guard let runtime else { return }
+        guard runtime != nil else { return }
         Task { await runDiscoveryFlow() }
+    }
+
+    @objc private func onDeepDiveTap() {
+        openDeepDivePage()
+    }
+
+    func openDeepDivePage() {
+        let deepDive = DeepDiveViewController()
+        navigationController?.pushViewController(deepDive, animated: true)
     }
 
     private func triggerAutoGatewayRegistrationIfNeeded() {
         guard !didTriggerAutoGatewayRegistration else { return }
         guard let runtime else { return }
         didTriggerAutoGatewayRegistration = true
-        Task {
+        Task { [weak self] in
             await runtime.startGatewayRegistration(log: { [weak self] text in
                 DispatchQueue.main.async { [weak self] in
                     self?.appendLine(text)
                 }
             })
+            // Bootstrap one discovery+ingest cycle so gateway has real logs and ui-tree data
+            // before the user manually taps "发现并上报".
+            await self?.runDiscoveryFlow()
         }
     }
 
@@ -391,22 +578,97 @@ final class DemoViewController: UIViewController {
             let result = try await runtime.discoverGateway()
             await MainActor.run {
                 self.appendLine(DemoDiscoveryOutputFormatter.success(result))
+                self.bannerLabel.text = "discover ok"
+                self.discoverySummaryLabel.text = "status=ok source=\(result.source.rawValue) host=\(result.host) port=\(result.port) version=\(result.version)"
+                self.sourcesLabel.text = "source=\(result.source.rawValue) host=\(result.host):\(result.port)"
             }
             do {
                 try await runtime.ingestGatewayLog(after: result)
                 await MainActor.run {
                     self.appendLine(DemoGatewayIngestOutputFormatter.success(endpoint: result.endpoint))
+                    self.ingestSummaryLabel.text = "ingest status=ok endpoint=\(result.endpoint.absoluteString)"
                 }
             } catch {
                 await MainActor.run {
                     self.appendLine(DemoGatewayIngestOutputFormatter.failure(error))
+                    self.ingestSummaryLabel.text = "ingest status=error error=\(error.localizedDescription)"
+                }
+            }
+            do {
+                try await runtime.ingestGatewayRawViewTree(after: result)
+                await MainActor.run {
+                    self.appendLine(DemoGatewayViewTreeIngestOutputFormatter.success(endpoint: result.endpoint))
+                }
+            } catch {
+                await MainActor.run {
+                    self.appendLine(DemoGatewayViewTreeIngestOutputFormatter.failure(error))
                 }
             }
         } catch {
             await MainActor.run {
                 self.appendLine(DemoDiscoveryOutputFormatter.failure(error))
+                self.bannerLabel.text = "discover failed"
+                self.discoverySummaryLabel.text = "status=error error=\(error.localizedDescription)"
+                self.sourcesLabel.text = "no source yet"
             }
         }
+    }
+
+    private func refreshSnapshotDashboard(appendSummary: Bool = false) async {
+        guard let runtime else { return }
+        let (metrics, page) = await runtime.snapshot()
+        let ids = page.records.map(\.id).map(String.init).joined(separator: ",")
+
+        await MainActor.run {
+            self.batchLabel.text = "batch #\(self.batchCount)"
+            self.metricsLabel.text = """
+            queueSize=\(metrics.totalRecords)
+            totalIngested=\(metrics.totalRecords)
+            droppedOverflow=\(metrics.droppedOverflow)
+            totalExported=\(metrics.totalRecords)
+            """
+            if appendSummary {
+                self.appendLine("metrics total=\(metrics.totalRecords) dropped=\(metrics.droppedOverflow) latest=\(metrics.newestRecordId.map(String.init) ?? "nil")")
+                self.appendLine("logs count=\(page.records.count) ids=[\(ids)]")
+            }
+        }
+    }
+
+    private func makeCard() -> UIView {
+        let card = UIView()
+        card.backgroundColor = UIColor(red: 0.035, green: 0.071, blue: 0.122, alpha: 0.95)
+        card.layer.cornerRadius = 24
+        card.layer.borderWidth = 1
+        card.layer.borderColor = UIColor(red: 0.41, green: 0.56, blue: 0.69, alpha: 0.25).cgColor
+        return card
+    }
+
+    private func makeLabel(text: String, size: CGFloat, weight: UIFont.Weight, color: UIColor = UIColor(red: 0.95, green: 0.97, blue: 1, alpha: 1)) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: size, weight: weight)
+        label.textColor = color
+        return label
+    }
+
+    private func styleChip(_ label: UILabel, background: UIColor, textColor: UIColor) {
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = textColor
+        label.backgroundColor = background
+        label.layer.cornerRadius = 999
+        label.clipsToBounds = true
+        label.textAlignment = .center
+        label.setContentHuggingPriority(.required, for: .horizontal)
+        label.layoutMargins = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+    }
+
+    private func stylePrimaryButton(_ button: UIButton) {
+        button.configuration = .filled()
+        button.configuration?.baseBackgroundColor = UIColor(red: 0.46, green: 0.83, blue: 0.97, alpha: 1)
+        button.configuration?.baseForegroundColor = UIColor(red: 0.02, green: 0.07, blue: 0.11, alpha: 1)
+        button.configuration?.cornerStyle = .capsule
+        button.configuration?.contentInsets = NSDirectionalEdgeInsets(top: 16, leading: 14, bottom: 16, trailing: 14)
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .bold)
     }
 
     private func appendLine(_ text: String) {

@@ -96,7 +96,7 @@ public struct NeptuneSmokeDemoRunner: Sendable {
     }
 
     public func run() async throws -> Summary {
-        let databasePath = Self.makeDatabasePath()
+        let databasePath = try Self.makeDatabasePath()
 
         defer {
             if !configuration.keepDatabase {
@@ -127,58 +127,72 @@ public struct NeptuneSmokeDemoRunner: Sendable {
     }
 
     private static func runSmokeDemo(configuration: Configuration, databasePath: String) async throws -> Summary {
-        let service = try NeptuneSDKiOS.makeExportService(
-            storage: .sqlite(path: databasePath),
-            capacity: configuration.capacity
-        )
         let records = Self.makeIngestRecords(count: configuration.ingestCount)
-        _ = await service.ingest(records)
-
-        let server = NeptuneSDKiOS.makeExportHTTPServer(service: service)
-
-        do {
-            try await server.start(port: 0)
-            guard let port = await server.listeningPort() else {
-                await server.stop()
-                throw RunnerError.serverPortUnavailable
-            }
-
-            let healthURL = Self.makeURL(port: port, path: "/v2/export/health")
-            let metricsURL = Self.makeURL(port: port, path: "/v2/export/metrics")
-            let logsURL = Self.makeURL(port: port, path: "/v2/logs?cursor=0&limit=\(max(1, configuration.pageLimit))")
-
-            let health = try await Self.fetchJSON(from: healthURL, as: NeptuneHealthSnapshot.self)
-            let metrics = try await Self.fetchJSON(from: metricsURL, as: NeptuneMetricsSnapshot.self)
-            let logs = try await Self.fetchJSON(from: logsURL, as: NeptuneLogsPage.self)
-
-            await server.stop()
-
-            let reopenedService = try NeptuneSDKiOS.makeExportService(
+        let captured: (
+            port: UInt16,
+            health: HTTPJSONResponse<NeptuneHealthSnapshot>,
+            metrics: HTTPJSONResponse<NeptuneMetricsSnapshot>,
+            logs: HTTPJSONResponse<NeptuneLogsPage>
+        ) = try await {
+            let service = try NeptuneSDKiOS.makeExportService(
                 storage: .sqlite(path: databasePath),
                 capacity: configuration.capacity
             )
-            let reopenedMetrics = await reopenedService.metrics()
-            let reopenedLogsPage = await reopenedService.logs(cursor: 0, limit: max(1, configuration.pageLimit))
+            _ = await service.ingest(records)
 
-            try Self.validate(health: health, metrics: metrics, logs: logs, reopenedMetrics: reopenedMetrics, reopenedLogsPage: reopenedLogsPage)
+            let server = NeptuneSDKiOS.makeExportHTTPServer(service: service)
 
-            return Summary(
-                databasePath: databasePath,
-                port: port,
-                ingestedCount: records.count,
-                healthStatusCode: health.statusCode,
-                health: health.value,
-                metricsStatusCode: metrics.statusCode,
-                metrics: metrics.value,
-                logsStatusCode: logs.statusCode,
-                logsPage: logs.value,
-                reopenedMetrics: reopenedMetrics,
-                reopenedLogsPage: reopenedLogsPage
-            )
-        } catch {
-            await server.stop()
-            throw error
-        }
+            do {
+                try await server.start(port: 0)
+                guard let port = await server.listeningPort() else {
+                    await server.stop()
+                    throw RunnerError.serverPortUnavailable
+                }
+
+                let healthURL = Self.makeURL(port: port, path: "/v2/export/health")
+                let metricsURL = Self.makeURL(port: port, path: "/v2/export/metrics")
+                let logsURL = Self.makeURL(port: port, path: "/v2/logs?cursor=0&limit=\(max(1, configuration.pageLimit))")
+
+                let health = try await Self.fetchJSON(from: healthURL, as: NeptuneHealthSnapshot.self)
+                let metrics = try await Self.fetchJSON(from: metricsURL, as: NeptuneMetricsSnapshot.self)
+                let logs = try await Self.fetchJSON(from: logsURL, as: NeptuneLogsPage.self)
+
+                await server.stop()
+                return (port: port, health: health, metrics: metrics, logs: logs)
+            } catch {
+                await server.stop()
+                throw error
+            }
+        }()
+
+        let reopenedService = try NeptuneSDKiOS.makeExportService(
+            storage: .sqlite(path: databasePath),
+            capacity: configuration.capacity
+        )
+        let reopenedMetrics = await reopenedService.metrics()
+        let reopenedLogsPage = await reopenedService.logs(cursor: 0, limit: max(1, configuration.pageLimit))
+
+        try Self.validate(
+            health: captured.health,
+            metrics: captured.metrics,
+            logs: captured.logs,
+            reopenedMetrics: reopenedMetrics,
+            reopenedLogsPage: reopenedLogsPage
+        )
+
+        return Summary(
+            databasePath: databasePath,
+            port: captured.port,
+            ingestedCount: records.count,
+            healthStatusCode: captured.health.statusCode,
+            health: captured.health.value,
+            metricsStatusCode: captured.metrics.statusCode,
+            metrics: captured.metrics.value,
+            logsStatusCode: captured.logs.statusCode,
+            logsPage: captured.logs.value,
+            reopenedMetrics: reopenedMetrics,
+            reopenedLogsPage: reopenedLogsPage
+        )
     }
 
     private static func validate(
@@ -216,9 +230,10 @@ public struct NeptuneSmokeDemoRunner: Sendable {
         URL(string: "http://127.0.0.1:\(port)\(path)")!
     }
 
-    private static func makeDatabasePath() -> String {
+    private static func makeDatabasePath() throws -> String {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("NeptuneSDKiOSSmokeDemo", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let fileName = "smoke-\(UUID().uuidString).sqlite"
         return directory.appendingPathComponent(fileName).path
     }

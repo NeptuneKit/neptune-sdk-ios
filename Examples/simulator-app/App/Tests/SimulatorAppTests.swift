@@ -2,6 +2,7 @@ import XCTest
 import NeptuneSDKiOS
 @testable import SimulatorApp
 
+@MainActor
 final class SimulatorAppTests: XCTestCase {
     func testDemoPlaceholder() {
         XCTAssertTrue(true)
@@ -89,6 +90,45 @@ final class SimulatorAppTests: XCTestCase {
             "ws command.dispatch ping -> command.ack status=ok timestamp=2026-03-24T10:11:12Z"
         )
     }
+
+    func testActionButtonsUseUnifiedThreeActionModel() {
+        XCTAssertEqual(
+            DemoViewController.actionButtonTitles,
+            ["写入日志批次", "发现并上报", "刷新快照"]
+        )
+    }
+
+    func testDeepDiveEntryPushesComplexPage() {
+        let controller = DemoViewController(runtime: DemoRuntimeSpy())
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        controller.loadViewIfNeeded()
+        controller.openDeepDivePage()
+
+        XCTAssertTrue(navigationController.topViewController is DeepDiveViewController)
+    }
+
+    func testDeepDiveEntryButtonHasTouchableFrame() {
+        let controller = DemoViewController(runtime: DemoRuntimeSpy())
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+
+        let button = try? XCTUnwrap(controller.view.findButton(withTitle: "进入复杂二级页"))
+        XCTAssertNotNil(button)
+        XCTAssertGreaterThan(button?.bounds.height ?? 0, 30)
+        XCTAssertGreaterThan(button?.bounds.width ?? 0, 80)
+    }
+
+    func testDeepDiveViewControllerBuildsRichHierarchy() {
+        let controller = DeepDiveViewController()
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.title, "Neptune Deep Dive")
+        XCTAssertGreaterThanOrEqual(controller.view.recursiveSubviewCount(of: UILabel.self), 20)
+        XCTAssertEqual(controller.view.recursiveSubviewCount(of: UIButton.self), 3)
+        XCTAssertGreaterThanOrEqual(controller.view.recursiveSubviewCount(of: UIStackView.self), 8)
+    }
 }
 
 private actor DemoRuntimeSpy: DemoRuntimeManaging {
@@ -142,6 +182,10 @@ private actor DemoRuntimeSpy: DemoRuntimeManaging {
         _ = discovery
     }
 
+    func ingestGatewayRawViewTree(after discovery: NeptuneGatewayDiscoveryResult) async throws {
+        _ = discovery
+    }
+
     func startGatewayRegistration(log: @escaping @Sendable (String) -> Void) async {
         startGatewayRegistrationCountValue += 1
         log("spy gateway registration started")
@@ -168,4 +212,25 @@ private func eventually(
     }
 
     return await condition()
+}
+
+private extension UIView {
+    func recursiveSubviewCount<T: UIView>(of type: T.Type) -> Int {
+        subviews.reduce(0) { partialResult, subview in
+            let nested = subview.recursiveSubviewCount(of: type)
+            return partialResult + (subview is T ? 1 : 0) + nested
+        }
+    }
+
+    func findButton(withTitle title: String) -> UIButton? {
+        if let button = self as? UIButton, button.currentTitle == title {
+            return button
+        }
+        for subview in subviews {
+            if let matched = subview.findButton(withTitle: title) {
+                return matched
+            }
+        }
+        return nil
+    }
 }

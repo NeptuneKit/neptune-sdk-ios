@@ -47,4 +47,74 @@ struct GatewayIngestClientTests {
         #expect(decoded.command == nil)
         #expect(decoded.logRecord == record)
     }
+
+    @Test("Gateway raw view tree ingest request uses ui-tree/inspector payload")
+    func rawViewTreeRequestUsesExpectedJSONBody() throws {
+        let payload: InspectorPayloadValue = .object([
+            "roots": .array([
+                .object([
+                    "id": .string("root"),
+                    "name": .string("UIWindow"),
+                    "children": .array([]),
+                    "visible": .bool(false),
+                    "alpha": .number(0)
+                ])
+            ]),
+            "debug": .null
+        ])
+
+        let snapshot = InspectorSnapshot(
+            snapshotId: "ios-inspector-1",
+            capturedAt: "2026-03-27T10:30:00Z",
+            platform: "ios",
+            available: true,
+            payload: payload
+        )
+
+        let request = try NeptuneGatewayIngestClient.makeRawViewTreeRequest(
+            platform: "ios",
+            appId: "com.neptunekit.demo.ios",
+            sessionId: "simulator-session",
+            deviceId: "device-1",
+            snapshot: snapshot,
+            gatewayEndpoint: URL(string: "http://127.0.0.1:18765")!
+        )
+
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(request.url?.absoluteString == "http://127.0.0.1:18765/v2/ui-tree/inspector")
+
+        let body = try #require(request.httpBody)
+        let decoded = try JSONDecoder().decode(
+            RawViewTreeRequestBody.self,
+            from: body
+        )
+
+        #expect(decoded == RawViewTreeRequestBody(
+            platform: "ios",
+            appId: "com.neptunekit.demo.ios",
+            sessionId: "simulator-session",
+            deviceId: "device-1",
+            snapshotId: "ios-inspector-1",
+            capturedAt: "2026-03-27T10:30:00Z",
+            payload: .object([
+                "roots": .array([
+                    .object([
+                        "id": .string("root"),
+                        "name": .string("UIWindow")
+                    ])
+                ])
+            ])
+        ))
+    }
+}
+
+private struct RawViewTreeRequestBody: Codable, Equatable {
+    let platform: String
+    let appId: String
+    let sessionId: String
+    let deviceId: String
+    let snapshotId: String
+    let capturedAt: String
+    let payload: InspectorPayloadValue
 }

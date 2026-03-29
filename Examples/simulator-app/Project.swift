@@ -1,7 +1,11 @@
 import ProjectDescription
 
 let packages: [Package] = [
-    .package(path: "../..")
+    .package(path: "../.."),
+    .remote(
+        url: "https://github.com/Lakr233/LookInside.git",
+        requirement: .upToNextMajor(from: "2.1.1")
+    )
 ]
 
 let appTarget = Target(
@@ -18,8 +22,14 @@ let appTarget = Target(
     sources: ["App/Sources/**"],
     resources: ["App/Resources/**"],
     dependencies: [
-        .package(product: "NeptuneSDKiOS")
-    ]
+        .package(product: "NeptuneSDKiOS"),
+        .package(product: "LookinServer")
+    ],
+    settings: .settings(
+        base: [
+            "OTHER_LDFLAGS": "$(inherited) -ObjC"
+        ]
+    )
 )
 
 let testsTarget = Target(

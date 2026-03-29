@@ -16,6 +16,7 @@ iOS 端 Neptune v2 SDK 最小骨架，当前已支持内存队列与可选 SQLit
   - `GET /v2/export/health`
   - `GET /v2/export/metrics`
   - `GET /v2/logs?cursor&limit`
+  - `GET /v2/ui-tree/inspector?deviceId`
   - `POST /v2/client/command`（接收 `BusEnvelope`，返回 `BusAck`）
   - `POST /v1/client/command`
 - 网关主动回调注册：`NeptuneGatewayRegistrationClient`
@@ -92,6 +93,7 @@ try await server.start(port: 8080)
 // http://127.0.0.1:8080/v2/export/health
 // http://127.0.0.1:8080/v2/export/metrics
 // http://127.0.0.1:8080/v2/logs?cursor=0&limit=50
+// http://127.0.0.1:8080/v2/ui-tree/inspector?deviceId=device-1
 // http://127.0.0.1:8080/v2/client/command
 ```
 
@@ -268,27 +270,27 @@ bash scripts/simulator-demo.sh
 3. `simctl install` 安装 App
 4. `simctl launch` 拉起 App
 
-App 内提供四个操作按钮：
+App 内提供统一三按钮：
 
-- `Ingest 1 Log`
-- `Show Metrics`
-- `Start Export Server`
-- `Discover Gateway`
+- `写入日志批次`
+- `发现并上报`
+- `刷新快照`
 
 App 启动后会自动触发一次 gateway discovery + `POST /v2/clients:register`，并在日志区输出 `gateway registration started`、`gateway registration discovery success/failure`、`gateway registration success/failure`。
 
-`Discover Gateway` 会先尝试 mDNS，再回退到 `http://127.0.0.1:18765`，并把 `source`、`host`、`port`、`version` 和 `endpoint` 直接打印到页面日志区。
+`发现并上报` 会先尝试 mDNS，再回退到 `http://127.0.0.1:18765`，并把 `source`、`host`、`port`、`version` 和 `endpoint` 直接打印到页面日志区。
 
-当 `Discover Gateway` 成功后，Demo 会自动向 CLI 网关发送一条 `POST /v2/logs:ingest` 请求，正文使用 `application/json`，并在页面日志区输出 `gateway ingest success` 或 `gateway ingest failure`。
+当 `发现并上报` 成功后，Demo 会自动向 CLI 网关发送一条 `POST /v2/logs:ingest` 请求，正文使用 `application/json`，并在页面日志区输出 `gateway ingest success` 或 `gateway ingest failure`。
 
 导出服务默认监听 `127.0.0.1:18765`，可在模拟器内继续验证：
 
 - `/v2/export/health`
 - `/v2/export/metrics`
 - `/v2/logs`
+- `/v2/ui-tree/inspector`
 
 ## 接口兼容性
-- 导出路由保持不变：`/v2/export/health`、`/v2/export/metrics`、`/v2/logs?cursor&limit`
+- 导出路由：`/v2/export/health`、`/v2/export/metrics`、`/v2/logs?cursor&limit`、`/v2/ui-tree/inspector`
 - `cursor` 解析失败时按 `nil` 处理
 - `limit` 缺省时默认为 `100`
 - `limit` 为负数时钳制为 `0`
