@@ -26,6 +26,7 @@ iOS 端 Neptune v2 SDK 最小骨架，当前已支持内存队列与可选 SQLit
 
 ## 依赖
 - Swift 6
+- iOS 16+
 - [Vapor](https://github.com/vapor/vapor) 用于本地 HTTP 导出服务
 - [GRDB](https://github.com/groue/GRDB.swift) 用于 SQLite 持久化队列
 
@@ -229,13 +230,14 @@ bash scripts/build-xcframework.sh --build-library-for-distribution YES
 
 ```bash
 bash scripts/build-release-assets.sh --dry-run
-bash scripts/build-release-assets.sh --tag v1.2.3 --dry-run
+bash scripts/build-release-assets.sh --tag 1.2.3 --dry-run
 ```
 
 说明：
 
-- `--tag` 可选，不传时默认使用当天日期版本，并在同日多次发布时自动递增（`YYYY.M.D`、`YYYY.M.D.1`、`YYYY.M.D.2`）
-- 支持两种版本格式：`vX.Y.Z` 或 `YYYY.M.D(.N)`
+- `--tag` 可选，不传时默认使用当天日期版本（`YYYY.M.D`）
+- 若当天默认版本已存在，会自动递增到下一个合法 SemVer patch（例如 `YYYY.M.(D+1)`）
+- 发布版本统一为 SemVer：`X.Y.Z`（可选 `-prerelease` / `+build`），不再支持四段版本号（如 `2026.4.4.1`）
 
 正式执行时会：
 
@@ -245,9 +247,18 @@ bash scripts/build-release-assets.sh --tag v1.2.3 --dry-run
 
 GitHub Actions 工作流：`.github/workflows/release-xcframework.yml`
 
-- 触发方式：`release published`（发布 release 后自动执行）或 `workflow_dispatch`
+- 触发方式：`push tag` 或 `workflow_dispatch`
 - `workflow_dispatch` 未传 `tag_name` 时，会以当天日期作为版本号并基于当前提交构建
 - 执行结果：自动把 zip 与 sha256 挂载到对应 tag 的 GitHub Release
+- 若配置了 `NEPTUNE_XCFRAMEWORK_REPO_TOKEN` secret，还会继续同步 `neptune-sdk-xcframework` 仓库：
+  - 上传同名 Release 资产
+  - 更新 `Package.swift` 中的 `releaseTag` 与 `binaryChecksum`
+  - 更新 README 中的当前发布版本展示
+
+跨仓库同步要求：
+
+- `NEPTUNE_XCFRAMEWORK_REPO_TOKEN` 必须具备 `neptunekit/neptune-sdk-xcframework` 仓库写权限
+- 未配置该 secret 时，workflow 会在同步步骤显式失败，避免只发布源仓库资产而没有更新对外二进制入口
 
 ## Simulator App Demo（真实 iOS Demo 工程）
 

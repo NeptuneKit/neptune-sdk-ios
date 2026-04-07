@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "NeptuneSDKiOS",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v16),
         .macOS(.v15)
     ],
     products: [

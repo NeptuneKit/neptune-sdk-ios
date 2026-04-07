@@ -13,7 +13,7 @@ let appTarget = Target(
     platform: .iOS,
     product: .app,
     bundleId: "com.neptunekit.demo.ios",
-    deploymentTarget: .iOS(targetVersion: "17.0", devices: [.iphone]),
+    deploymentTarget: .iOS(targetVersion: "16.0", devices: [.iphone]),
     infoPlist: .extendingDefault(with: [
         "CFBundleShortVersionString": "1.0",
         "CFBundleVersion": "1",

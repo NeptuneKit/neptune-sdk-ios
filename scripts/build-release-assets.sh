@@ -18,7 +18,7 @@ Usage:
   bash scripts/build-release-assets.sh [options]
 
 Options:
-  --tag <name>                        release 版本号（例如 v1.2.3 或 2026.3.14.1，默认当天日期并自动递增）
+  --tag <name>                        release 版本号（SemVer，例如 1.2.3；默认当天日期并按 patch 自动递增）
   --framework-name <name>             framework 名称，默认 NeptuneSDKiOS
   --configuration <name>              构建配置，默认 Release
   --build-library-for-distribution <YES|NO>
@@ -62,14 +62,22 @@ release_tag_exists() {
   return 1
 }
 
-next_date_release_tag() {
+next_semver_release_tag() {
   local base_tag="${NEPTUNE_RELEASE_DATE_BASE:-$(date '+%Y.%-m.%-d')}"
-  local candidate="$base_tag"
-  local suffix=1
+  local major minor patch
 
+  if [[ ! "$base_tag" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    die "NEPTUNE_RELEASE_DATE_BASE must match X.Y.Z (for example 2026.4.4), got: $base_tag"
+  fi
+
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  patch="${BASH_REMATCH[3]}"
+
+  local candidate="${major}.${minor}.${patch}"
   while release_tag_exists "$candidate"; do
-    candidate="${base_tag}.${suffix}"
-    suffix=$((suffix + 1))
+    patch=$((patch + 1))
+    candidate="${major}.${minor}.${patch}"
   done
 
   echo "$candidate"
@@ -133,11 +141,11 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [[ -z "$RELEASE_TAG" ]]; then
-  RELEASE_TAG="$(next_date_release_tag)"
+  RELEASE_TAG="$(next_semver_release_tag)"
 fi
 
-if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] && [[ ! "$RELEASE_TAG" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]; then
-  die "release tag must match ^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$ or ^[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}(\\.[0-9]+)?$"
+if [[ ! "$RELEASE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+  die "release tag must be SemVer: X.Y.Z[-PRERELEASE][+BUILD]"
 fi
 
 OUTPUT_DIR="$(resolve_path "$OUTPUT_DIR")"

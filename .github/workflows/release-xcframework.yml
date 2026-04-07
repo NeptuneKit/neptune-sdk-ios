@@ -7,13 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to publish, for example v1.2.3"
+        description: "Release tag to publish (SemVer), for example 1.2.3"
         required: false
         default: ""
         type: string
 
 permissions:
   contents: write
+
+env:
+  WRAPPER_REPOSITORY: neptunekit/neptune-sdk-xcframework
 
 jobs:
   release:
@@ -44,20 +47,26 @@ jobs:
             fi
 
             base_tag="$(date '+%Y.%-m.%-d')"
-            candidate_tag="${base_tag}"
-            suffix=1
+            if [[ ! "${base_tag}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "default date tag must match X.Y.Z, got ${base_tag}" >&2
+              exit 1
+            fi
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            candidate_tag="${major}.${minor}.${patch}"
             repo_url="https://github.com/${GITHUB_REPOSITORY}.git"
 
             while git ls-remote --quiet --exit-code --tags --refs "${repo_url}" "refs/tags/${candidate_tag}" >/dev/null 2>&1; do
-              candidate_tag="${base_tag}.${suffix}"
-              suffix=$((suffix + 1))
+              patch=$((patch + 1))
+              candidate_tag="${major}.${minor}.${patch}"
             done
 
             tag_name="${candidate_tag}"
           fi
 
-          if [[ ! "${tag_name}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] && [[ ! "${tag_name}" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]; then
-            echo "${tag_name} must match ^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$ or ^[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}(\\.[0-9]+)?$" >&2
+          if [[ ! "${tag_name}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "${tag_name} must be SemVer: X.Y.Z[-PRERELEASE][+BUILD]" >&2
             exit 1
           fi
 
@@ -83,3 +92,88 @@ jobs:
             .build/artifacts/release/NeptuneSDKiOS-${{ steps.release_tag.outputs.tag_name }}.xcframework.zip
             .build/artifacts/release/NeptuneSDKiOS-${{ steps.release_tag.outputs.tag_name }}.xcframework.zip.sha256
           fail_on_unmatched_files: true
+
+      - name: Validate wrapper repository token
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${{ secrets.NEPTUNE_XCFRAMEWORK_REPO_TOKEN }}" ]]; then
+            echo "Missing required secret: NEPTUNE_XCFRAMEWORK_REPO_TOKEN" >&2
+            exit 1
+          fi
+
+      - name: Resolve checksum
+        id: checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          checksum_file=".build/artifacts/release/NeptuneSDKiOS-${{ steps.release_tag.outputs.tag_name }}.xcframework.zip.sha256"
+          checksum="$(awk '{print $1}' "${checksum_file}")"
+
+          if [[ ! "${checksum}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Invalid checksum in ${checksum_file}: ${checksum}" >&2
+            exit 1
+          fi
+
+          printf 'value=%s\n' "${checksum}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout wrapper repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.WRAPPER_REPOSITORY }}
+          token: ${{ secrets.NEPTUNE_XCFRAMEWORK_REPO_TOKEN }}
+          path: wrapper-repo
+          fetch-depth: 0
+
+      - name: Sync wrapper repository metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash scripts/sync-xcframework-wrapper.sh \
+            --repo-dir "${GITHUB_WORKSPACE}/wrapper-repo" \
+            --tag "${{ steps.release_tag.outputs.tag_name }}" \
+            --checksum "${{ steps.checksum.outputs.value }}"
+
+      - name: Upload wrapper repository release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NEPTUNE_XCFRAMEWORK_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release_tag.outputs.tag_name }}"
+          zip_path=".build/artifacts/release/NeptuneSDKiOS-${tag}.xcframework.zip"
+          checksum_path="${zip_path}.sha256"
+
+          if ! gh release view "${tag}" --repo "${WRAPPER_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${tag}" \
+              --repo "${WRAPPER_REPOSITORY}" \
+              --title "${tag}" \
+              --notes ""
+          fi
+
+          gh release upload "${tag}" \
+            "${zip_path}" \
+            "${checksum_path}" \
+            --repo "${WRAPPER_REPOSITORY}" \
+            --clobber
+
+      - name: Commit and push wrapper repository changes
+        shell: bash
+        working-directory: wrapper-repo
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet --exit-code; then
+            echo "No wrapper repository changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Package.swift README.md
+          git commit -m "chore: sync release ${{ steps.release_tag.outputs.tag_name }}"
+          git push

@@ -47,7 +47,7 @@ struct XCFrameworkScriptTests {
 
         let result = try runScript(scriptPath: scriptPath, arguments: ["--tag", "invalid_version", "--dry-run"])
         #expect(result.status != 0)
-        #expect(result.output.contains("must match"))
+        #expect(result.output.contains("SemVer"))
     }
 
     @Test("release 资产脚本 dry-run 成功")
@@ -59,9 +59,9 @@ struct XCFrameworkScriptTests {
 
         #expect(FileManager.default.fileExists(atPath: scriptPath))
 
-        let result = try runScript(scriptPath: scriptPath, arguments: ["--tag", "v1.2.3", "--dry-run"])
+        let result = try runScript(scriptPath: scriptPath, arguments: ["--tag", "1.2.3", "--dry-run"])
         #expect(result.status == 0)
-        #expect(result.output.contains("release_tag=v1.2.3"))
+        #expect(result.output.contains("release_tag=1.2.3"))
         #expect(result.output.contains("zip_path="))
     }
 
@@ -82,6 +82,23 @@ struct XCFrameworkScriptTests {
         )
         #expect(result.status == 0)
         #expect(result.output.contains("release_tag=\(dateBase)"))
+    }
+
+    @Test("release 资产脚本拒绝四段版本号")
+    func releaseAssetsRejectsFourSegmentVersion() throws {
+        let scriptPath = projectRoot()
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("build-release-assets.sh")
+            .path
+
+        #expect(FileManager.default.fileExists(atPath: scriptPath))
+
+        let result = try runScript(
+            scriptPath: scriptPath,
+            arguments: ["--tag", "2026.4.4.1", "--dry-run"]
+        )
+        #expect(result.status != 0)
+        #expect(result.output.contains("SemVer"))
     }
 
     @Test("release 资产脚本同日多版本自动递增")
@@ -108,7 +125,7 @@ struct XCFrameworkScriptTests {
             environment: ["NEPTUNE_RELEASE_DATE_BASE": dateBase]
         )
         #expect(result.status == 0)
-        #expect(result.output.contains("release_tag=\(dateBase).1"))
+        #expect(result.output.contains("release_tag=2030.1.3"))
     }
 
     @Test("运行时依赖检查应忽略静态成员条目")
@@ -194,6 +211,106 @@ struct XCFrameworkScriptTests {
         )
         #expect(result.status != 0)
         #expect(result.output.contains("检测到非系统动态依赖"))
+    }
+
+    @Test("wrapper 同步脚本 --help 输出使用说明")
+    func wrapperSyncHelpShowsUsage() throws {
+        let scriptPath = projectRoot()
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("sync-xcframework-wrapper.sh")
+            .path
+
+        let result = try runScript(scriptPath: scriptPath, arguments: ["--help"])
+        #expect(result.status == 0)
+        #expect(result.output.contains("Usage:"))
+        #expect(result.output.contains("--repo-dir"))
+        #expect(result.output.contains("--tag"))
+        #expect(result.output.contains("--checksum"))
+    }
+
+    @Test("wrapper 同步脚本拒绝非法 checksum")
+    func wrapperSyncRejectsInvalidChecksum() throws {
+        let scriptPath = projectRoot()
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("sync-xcframework-wrapper.sh")
+            .path
+
+        let repoDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("neptune-wrapper-invalid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoDir) }
+
+        try """
+        let releaseTag = "2026.4.5"
+        let binaryChecksum = "old"
+        """.write(to: repoDir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+        try "README".write(to: repoDir.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+        let result = try runScript(
+            scriptPath: scriptPath,
+            arguments: [
+                "--repo-dir", repoDir.path,
+                "--tag", "2026.4.7",
+                "--checksum", "abc"
+            ]
+        )
+        #expect(result.status != 0)
+        #expect(result.output.contains("64"))
+    }
+
+    @Test("wrapper 同步脚本更新 Package 与 README")
+    func wrapperSyncUpdatesPackageAndReadme() throws {
+        let scriptPath = projectRoot()
+            .appendingPathComponent("scripts")
+            .appendingPathComponent("sync-xcframework-wrapper.sh")
+            .path
+
+        let repoDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("neptune-wrapper-sync-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoDir) }
+
+        let packageContents = """
+        // swift-tools-version: 5.9
+
+        import PackageDescription
+
+        let releaseTag = "2026.4.5"
+        let binaryFileName = "NeptuneSDKiOS-\\(releaseTag).xcframework.zip"
+        let binaryURL = "https://github.com/neptunekit/neptune-sdk-xcframework/releases/download/\\(releaseTag)/\\(binaryFileName)"
+        let binaryChecksum = "oldchecksumoldchecksumoldchecksumoldchecksumoldchecksumoldchecksum12"
+        """
+        try packageContents.write(to: repoDir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+
+        let readmeContents = """
+        ## 当前发布版本
+
+        - Release tag: `2026.4.5`
+        - XCFramework zip: `NeptuneSDKiOS-2026.4.5.xcframework.zip`
+        - SHA256: `oldchecksumoldchecksumoldchecksumoldchecksumoldchecksumoldchecksum12`
+        """
+        try readmeContents.write(to: repoDir.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+        let checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        let result = try runScript(
+            scriptPath: scriptPath,
+            arguments: [
+                "--repo-dir", repoDir.path,
+                "--tag", "2026.4.7",
+                "--checksum", checksum
+            ]
+        )
+        #expect(result.status == 0)
+
+        let packageAfter = try String(contentsOf: repoDir.appendingPathComponent("Package.swift"), encoding: .utf8)
+        let readmeAfter = try String(contentsOf: repoDir.appendingPathComponent("README.md"), encoding: .utf8)
+
+        #expect(packageAfter.contains("let releaseTag = \"2026.4.7\""))
+        #expect(packageAfter.contains("let binaryChecksum = \"\(checksum)\""))
+        #expect(readmeAfter.contains("- Release tag: `2026.4.7`"))
+        #expect(readmeAfter.contains("- XCFramework zip: `NeptuneSDKiOS-2026.4.7.xcframework.zip`"))
+        #expect(readmeAfter.contains("- SHA256: `\(checksum)`"))
+        #expect(result.output.contains("updated wrapper repo metadata"))
     }
 
     private func projectRoot() -> URL {
